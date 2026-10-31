@@ -423,6 +423,11 @@ export const MaterialTable: React.FC<MaterialTableProps> = ({
                           QC Insp
                         </span>
                       )}
+                      {r.isSambung && (
+                        <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-cyan-100 text-cyan-900 font-semibold border border-cyan-300">
+                          Sambung Wrapper
+                        </span>
+                      )}
                     </div>
                   </td>
 

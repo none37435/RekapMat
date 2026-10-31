@@ -99,8 +99,16 @@ export function sanitizeFormulas(data: unknown): MasterRumusMapping[] {
     const kode = String(rawKode).trim().toUpperCase();
     if (!kode) continue;
 
-    // Kode inspection (misal: 8320311RE, 8320314RE) adalah proses inspection terpisah dan tidak boleh memiliki rumus konversi
-    if (kode === '8320311RE' || kode.endsWith('RE') || kode.includes('INSPECTION')) continue;
+    // Kode inspection (misal: 8320311RE, 8320314RE) dan Sambung Wrapper adalah proses terpisah dan tidak boleh memiliki rumus konversi
+    if (
+      kode === '8320311RE' ||
+      kode.endsWith('RE') ||
+      kode.includes('INSPECTION') ||
+      kode.includes('SAMBUNG') ||
+      kode.includes('WRAPPER')
+    ) {
+      continue;
+    }
 
     const rawTipe = String(raw.tipeRumus ?? raw.type ?? 'MULTIPLIER').toUpperCase();
     const tipeRumus = (['MULTIPLIER', 'SLITTING', 'DIVIDER', 'RATIO', 'CUSTOM'].includes(rawTipe)

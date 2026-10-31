@@ -63,6 +63,7 @@ export interface ExtractedMaterialItem {
   planQty?: number;
   formulaNote?: string;
   isInspection?: boolean;
+  isSambung?: boolean;
 }
 
 /**
@@ -76,6 +77,26 @@ function extractWidthSpecification(text: string): string | null {
     return match[1].replace(',', '.');
   }
   return null;
+}
+
+/**
+ * Ekstraksi spesifikasi khusus kasa WINCH (misal: "SHQ WINCH (1)", "SHQ WINCH (2)", "SHQ WINCH", dll.)
+ * Memastikan kain kasa dengan proses mesin Winch terpisah dari kasa SHQ standar.
+ */
+export function extractWinchSpecification(text: string): string | null {
+  if (!text) return null;
+  const upper = text.toUpperCase();
+  if (!upper.includes('WINCH')) return null;
+
+  // Cek apakah ada nomor varian / spesifikasi setelah WINCH: misal (1), (2), 1, 2, dll.
+  const match = upper.match(/WINCH\s*(?:\(\s*(\d+)\s*\)|(\d+))/i);
+  const num = match ? (match[1] || match[2]) : null;
+
+  if (upper.includes('24/20') && !upper.includes('SHQ')) {
+    return num ? `24/20 WINCH (${num})` : '24/20 WINCH';
+  }
+
+  return num ? `SHQ WINCH (${num})` : 'SHQ WINCH';
 }
 
 /**
@@ -122,7 +143,19 @@ function parseSingleMaterialSegment(
     };
   }
 
-  // 4. SHQ
+  // 4. SHQ WINCH (Spek khusus kasa WINCH: misal "SHQ WINCH (1)", "SHQ WINCH (2)", "SHQ WINCH")
+  const winchSpec = extractWinchSpecification(text) || extractWinchSpecification(namaProd);
+  if (winchSpec) {
+    const isExplicitRoll = namaProd.includes('ROLL') || namaProd.includes('POLIBAN') || namaProd.includes('DRC');
+    return {
+      bahanBaku: winchSpec,
+      qty: totalQty,
+      kode,
+      isRoll: isExplicitRoll, // Default Kasa Lipat
+    };
+  }
+
+  // 5. SHQ Standar
   if (text.includes('SHQ')) {
     const isExplicitRoll = namaProd.includes('ROLL') || namaProd.includes('POLIBAN') || namaProd.includes('DRC');
     return {
@@ -238,8 +271,10 @@ export function extractMaterialItemsFromProcessRow(
     Number(proc.inspection || 0)
   ) || 0;
 
-  // Analisis porsi inspection vs produksi (slitting / folding / cutting / sambung)
+  // Analisis porsi inspection vs sambung wrapper vs produksi (slitting / folding / cutting)
   const rawInspection = Number(proc.inspection) || 0;
+  const rawSambung = Number(proc.sambung) || 0;
+
   const isExplicitInspection =
     namaProd.includes('INSPECTION') ||
     namaProd.includes('INSP') ||
@@ -247,17 +282,40 @@ export function extractMaterialItemsFromProcessRow(
     ket.toUpperCase().includes('INSP') ||
     kode.toUpperCase().endsWith('RE');
 
-  let qtyInspection = 0;
-  let qtyProduksi = total;
+  const isExplicitSambung =
+    namaProd.includes('SAMBUNG') ||
+    namaProd.includes('WRAPPER') ||
+    ket.toUpperCase().includes('SAMBUNG') ||
+    ket.toUpperCase().includes('WRAPPER');
 
-  if (isExplicitInspection) {
+  let qtyInspection = 0;
+  let qtySambung = 0;
+  let qtyProduksi = 0;
+
+  if (isExplicitSambung) {
+    // Jika dari nama produk atau keterangan spesifik adalah Sambung Wrapper
+    qtySambung = total;
+    qtyProduksi = 0;
+    qtyInspection = 0;
+  } else if (isExplicitInspection) {
     // Jika dari nama produk, keterangan, atau kode jelas merupakan inspection (misal: 8320311RE)
     qtyInspection = total;
     qtyProduksi = 0;
-  } else if (rawInspection > 0) {
-    // Jika di baris proses pengerjaan (misal 8320311RB) terdapat kolom inspection yang terisi
-    qtyInspection = Math.min(total, rawInspection);
-    qtyProduksi = Math.max(0, total - qtyInspection);
+    qtySambung = 0;
+  } else {
+    // Baris proses pengerjaan (misal 8320311RB, 8320314RB) yang memiliki porsi Slitting, Sambung Wrapper, dan/atau Inspection
+    const effectiveTotal = Math.max(
+      total,
+      Number(proc.slitting || 0) +
+        Number(proc.folding || 0) +
+        Number(proc.cutting || 0) +
+        rawSambung +
+        rawInspection
+    );
+    qtyInspection = Math.min(effectiveTotal, rawInspection);
+    const remAfterInsp = Math.max(0, effectiveTotal - qtyInspection);
+    qtySambung = Math.min(remAfterInsp, rawSambung);
+    qtyProduksi = Math.max(0, remAfterInsp - qtySambung);
   }
 
   // Helper untuk menerapkan rumus perhitungan konversi jika item adalah Kasa Roll
@@ -269,6 +327,15 @@ export function extractMaterialItemsFromProcessRow(
           ...item,
           planQty: item.qty,
           formulaNote: 'Inspection (1:1 tanpa rumus konversi)',
+        };
+      }
+
+      // Jika item adalah proses Sambung Wrapper, JANGAN terapkan rumus (1:1 murni)
+      if (item.isSambung) {
+        return {
+          ...item,
+          planQty: item.qty,
+          formulaNote: 'Sambung Wrapper (1:1 tanpa rumus konversi)',
         };
       }
 
@@ -295,7 +362,7 @@ export function extractMaterialItemsFromProcessRow(
     });
   };
 
-  // Helper untuk memecah daftar bahan menjadi item produksi dan item inspection (jika ada)
+  // Helper untuk memecah daftar bahan menjadi item produksi, sambung wrapper, dan inspection
   const createSubItemsForBahan = (
     bahanList: string[],
     isRoll: boolean,
@@ -312,11 +379,30 @@ export function extractMaterialItemsFromProcessRow(
           kode: sourceKode,
           isRoll,
           isInspection: false,
+          isSambung: false,
         });
       }
     }
 
-    // 2. Porsi inspection (otomatis dipisahkan; misal 8320311RB dialihkan ke 8320311RE)
+    // 2. Porsi sambung wrapper (terpisah, 1:1 tanpa rumus konversi)
+    if (qtySambung > 0) {
+      const sambungKode = sourceKode
+        ? (sourceKode.toUpperCase().includes('SAMBUNG') ? sourceKode : `${sourceKode} (Sambung)`)
+        : 'SAMBUNG WRAPPER';
+
+      for (const b of bahanList) {
+        res.push({
+          bahanBaku: b,
+          qty: qtySambung,
+          kode: sambungKode,
+          isRoll,
+          isInspection: false,
+          isSambung: true,
+        });
+      }
+    }
+
+    // 3. Porsi inspection (otomatis dipisahkan; misal 8320311RB dialihkan ke 8320311RE)
     if (qtyInspection > 0) {
       const inspKode = sourceKode.toUpperCase().endsWith('RB')
         ? sourceKode.replace(/RB$/i, 'RE')
@@ -329,6 +415,7 @@ export function extractMaterialItemsFromProcessRow(
           kode: inspKode,
           isRoll,
           isInspection: true,
+          isSambung: false,
         });
       }
     }
@@ -344,11 +431,20 @@ export function extractMaterialItemsFromProcessRow(
     );
     if (matchedMasters.length > 0) {
       const items: ExtractedMaterialItem[] = [];
+      const combinedText = `${ket} ${namaProd} ${kode}`.trim();
+      const winchSpec = extractWinchSpecification(combinedText);
+
       for (const matched of matchedMasters) {
         // Mendukung multi bahan dalam satu teks (misal: "Carded Laps 87,5 + Bembliese" atau ";", "&", " dan ")
         const rawBahan = matched.bahanBaku || '';
         const parts = rawBahan.split(/[\+;&]|\s+dan\s+/i).map((p) => p.trim()).filter(Boolean);
-        const bahanList = parts.length > 0 ? parts : [rawBahan.trim() || '24/20'];
+        let bahanList = parts.length > 0 ? parts : [rawBahan.trim() || '24/20'];
+
+        // Jika baris pekerjaan memiliki spek khusus WINCH (misal: "SHQ WINCH (1)"),
+        // ganti bahan 'SHQ' standar dengan spek khusus WINCH tersebut agar tidak tercampur!
+        if (winchSpec) {
+          bahanList = bahanList.map((b) => (b.trim().toUpperCase() === 'SHQ' ? winchSpec : b));
+        }
 
         const subItems = createSubItemsForBahan(bahanList, matched.jenis === 'Kasa Roll', kode);
         items.push(...subItems);
@@ -410,7 +506,7 @@ export function autoConvertProcessToRekap(
   const mappings = masterMappings || getMasterCodeMappings();
   const formulas = formulaMappings || getFormulaMappings();
 
-  // Mengelompokkan berdasarkan Bahan Baku + Jenis + Hari + Inspection
+  // Mengelompokkan berdasarkan Bahan Baku + Jenis + Hari + Inspection + Sambung
   const groups = new Map<string, {
     bahanBaku: string;
     isRoll: boolean;
@@ -420,6 +516,7 @@ export function autoConvertProcessToRekap(
     planQty: number;
     formulaNotes: string[];
     isInspection?: boolean;
+    isSambung?: boolean;
   }>();
 
   for (const proc of processRows) {
@@ -427,9 +524,10 @@ export function autoConvertProcessToRekap(
     const extractedList = extractMaterialItemsFromProcessRow(proc, mappings, formulas);
 
     for (const item of extractedList) {
-      // Pisahkan baris inspection agar kuantitasnya tidak tercampur dengan kuantitas meter roll produksi
+      // Pisahkan baris inspection dan sambung wrapper agar kuantitasnya tidak tercampur dengan kuantitas meter roll produksi
       const inspKey = item.isInspection ? '_insp' : '';
-      const key = `${item.bahanBaku}_${item.isRoll ? 'roll' : 'lipat'}_${rowDay}${inspKey}`;
+      const sambungKey = item.isSambung ? '_sambung' : '';
+      const key = `${item.bahanBaku}_${item.isRoll ? 'roll' : 'lipat'}_${rowDay}${inspKey}${sambungKey}`;
       if (!groups.has(key)) {
         groups.set(key, {
           bahanBaku: item.bahanBaku,
@@ -440,6 +538,7 @@ export function autoConvertProcessToRekap(
           planQty: item.planQty ?? item.qty,
           formulaNotes: item.formulaNote ? [item.formulaNote] : [],
           isInspection: item.isInspection,
+          isSambung: item.isSambung,
         });
       } else {
         const existing = groups.get(key)!;
@@ -465,10 +564,16 @@ export function autoConvertProcessToRekap(
     const rawCodes = g.codes.filter(Boolean).join(', ');
     const noteSuffix = g.formulaNotes.length > 0 ? ` [📐 ${g.formulaNotes.join('; ')}]` : '';
 
-    // Jika proses inspection, beri nama jelas: e.g. "Needle Punch (Inspection)"
-    const displayName = g.isInspection && !g.bahanBaku.toLowerCase().includes('inspection')
-      ? `${g.bahanBaku} (Inspection)`
-      : g.bahanBaku;
+    // Label nama jelas sesuai proses
+    let displayName = g.bahanBaku;
+    if (g.isInspection && !displayName.toLowerCase().includes('inspection')) {
+      displayName = `${displayName} (Inspection)`;
+    } else if (g.isSambung && !displayName.toLowerCase().includes('sambung') && !displayName.toLowerCase().includes('wrapper')) {
+      displayName = `${displayName} (Sambung Wrapper)`;
+    }
+
+    const rowSumber: SumberType = g.isSambung ? 'SAMBUNG' : 'MR';
+    const rowStatus: StatusType = g.isSambung ? 'Sambung' : 'Belum';
 
     result.push({
       id: generateUniqueRowId(`rekap-mat-${safeHari}-${index++}`),
@@ -478,8 +583,8 @@ export function autoConvertProcessToRekap(
       nama: displayName, // BAHAN BAKU
       qty: roundedQty, // Total kuantitas bahan hasil perhitungan rumus
       hari: g.hari, // Hari pengerjaan (Senin, Selasa, dll.)
-      sumber: 'MR', // DEFAULT MR
-      status: 'Belum', // DEFAULT BELUM
+      sumber: rowSumber, // DEFAULT SAMBUNG jika sambung wrapper, selain itu MR
+      status: rowStatus, // DEFAULT Sambung jika sambung wrapper, selain itu Belum
       keterangan: rawCodes + noteSuffix, // KODE PRODUK + CATATAN RUMUS
       oleh: '',
       waktu: '',
@@ -488,6 +593,7 @@ export function autoConvertProcessToRekap(
       planQty: roundedPlan,
       formulaApplied: g.formulaNotes.length > 0 ? g.formulaNotes.join('; ') : undefined,
       isInspection: g.isInspection,
+      isSambung: g.isSambung,
     });
   });
 

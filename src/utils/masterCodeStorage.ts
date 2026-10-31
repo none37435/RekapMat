@@ -35,7 +35,13 @@ export const INITIAL_MASTER_CODES: MasterCodeMapping[] = [
     kode: 'S0613',
     bahanBaku: 'SHQ',
     jenis: 'Kasa Lipat',
-    catatan: 'Kasa kualitas super (SHQ)',
+    catatan: 'Kasa kualitas super (SHQ standar)',
+  },
+  {
+    kode: 'S0613W',
+    bahanBaku: 'SHQ WINCH (1)',
+    jenis: 'Kasa Lipat',
+    catatan: 'Kasa kualitas super proses mesin Winch (spek khusus)',
   },
   {
     kode: 'S0001',

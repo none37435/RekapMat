@@ -135,12 +135,17 @@ export function findMatchingFormula(
   const cleanKode = (kode || '').trim().toUpperCase();
   const cleanNama = (namaProduk || '').trim().toUpperCase();
 
-  // 8320311RE adalah proses inspection mandiri dan terpisah dari 8320311RB (tidak diimplementasikan rumus)
+  // 8320311RE, inspection mandiri, serta proses Sambung Wrapper adalah proses terpisah (tidak diimplementasikan rumus)
   if (
     cleanKode === '8320311RE' ||
     cleanKode.endsWith('RE') ||
     cleanKode.includes('(INSPECTION)') ||
-    cleanNama.includes('8320311RE')
+    cleanKode.includes('(SAMBUNG)') ||
+    cleanKode.includes('(WRAPPER)') ||
+    cleanNama.includes('8320311RE') ||
+    cleanNama.includes('INSPECTION') ||
+    cleanNama.includes('SAMBUNG') ||
+    cleanNama.includes('WRAPPER')
   ) {
     return undefined;
   }

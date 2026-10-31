@@ -39,6 +39,7 @@ export interface MaterialRekapRow {
   planQty?: number;
   formulaApplied?: string;
   isInspection?: boolean;
+  isSambung?: boolean;
 }
 
 export interface DailyProcessRow {

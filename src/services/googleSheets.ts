@@ -493,7 +493,8 @@ function handleGetData(ss) {
           waktu: waktuIdx >= 0 ? String(row[waktuIdx] || '').trim() : '',
           noMr: mrIdx >= 0 ? String(row[mrIdx] || '').trim() : '',
           isHighlighted: false,
-          isInspection: nama.toLowerCase().indexOf('inspection') >= 0
+          isInspection: nama.toLowerCase().indexOf('inspection') >= 0,
+          isSambung: nama.toLowerCase().indexOf('sambung') >= 0 || nama.toLowerCase().indexOf('wrapper') >= 0
         });
       }
     }
