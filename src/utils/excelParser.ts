@@ -1,6 +1,8 @@
 import * as XLSX from 'xlsx';
-import { DailyProcessRow, MaterialRekapRow, StatusType, SumberType, MasterCodeMapping, FoldingCuttingItem } from '../types/material';
+import { DailyProcessRow, MaterialRekapRow, StatusType, SumberType, MasterCodeMapping, MasterRumusMapping, FoldingCuttingItem } from '../types/material';
 import { getMasterCodeMappings } from './masterCodeStorage';
+import { findMatchingFormula, calculateFormulaQty } from './formulaCalculator';
+import { getFormulaMappings } from './formulaStorage';
 
 export interface SheetParseDetail {
   sheetName: string;
@@ -58,6 +60,8 @@ export interface ExtractedMaterialItem {
   qty: number;
   kode: string;
   isRoll: boolean;
+  planQty?: number;
+  formulaNote?: string;
 }
 
 /**
@@ -217,9 +221,11 @@ function parseSingleMaterialSegment(
  */
 export function extractMaterialItemsFromProcessRow(
   proc: DailyProcessRow,
-  masterMappings?: MasterCodeMapping[]
+  masterMappings?: MasterCodeMapping[],
+  formulaMappings?: MasterRumusMapping[]
 ): ExtractedMaterialItem[] {
   const mappings = masterMappings || getMasterCodeMappings();
+  const formulas = formulaMappings || getFormulaMappings();
   const ket = (proc.keterangan || '').trim();
   const namaProd = (proc.namaProduk || '').trim().toUpperCase();
   const kode = (proc.kode || '').trim();
@@ -230,6 +236,25 @@ export function extractMaterialItemsFromProcessRow(
     Number(proc.sambung || 0) +
     Number(proc.inspection || 0)
   ) || 0;
+
+  // Helper untuk menerapkan rumus perhitungan konversi jika item adalah Kasa Roll
+  const applyFormula = (items: ExtractedMaterialItem[]): ExtractedMaterialItem[] => {
+    return items.map((item) => {
+      if (item.isRoll) {
+        const matched = findMatchingFormula(item.kode || kode, proc.namaProduk, 'Kasa Roll', formulas);
+        if (matched) {
+          const calc = calculateFormulaQty(item.qty, matched);
+          return {
+            ...item,
+            planQty: item.qty,
+            qty: calc.qtyBahan,
+            formulaNote: `${item.kode || kode || 'Roll'}: ${calc.rumusText}`,
+          };
+        }
+      }
+      return item;
+    });
+  };
 
   // PRIORITAS 1: Cek Master Code Mapping (Sistem Master Data)
   if (kode) {
@@ -255,7 +280,7 @@ export function extractMaterialItemsFromProcessRow(
         }
       }
       if (items.length > 0) {
-        return items;
+        return applyFormula(items);
       }
     }
   }
@@ -278,13 +303,13 @@ export function extractMaterialItemsFromProcessRow(
       const parsed = parseSingleMaterialSegment(part, subQty, kode, namaProd);
       subItems.push(parsed);
     }
-    if (subItems.length > 0) return subItems;
+    if (subItems.length > 0) return applyFormula(subItems);
   }
 
   // PRIORITAS 3: Analisis teks gabungan keterangan + nama produk + kode
   const combinedText = `${ket} ${namaProd} ${kode}`.trim();
   const parsedItem = parseSingleMaterialSegment(combinedText, total, kode, namaProd);
-  return [parsedItem];
+  return applyFormula([parsedItem]);
 }
 
 let globalRowCounter = 0;
@@ -301,11 +326,13 @@ export function generateUniqueRowId(prefix = 'mat'): string {
 export function autoConvertProcessToRekap(
   processRows: DailyProcessRow[],
   defaultDayOrSheetName = 'Senin',
-  masterMappings?: MasterCodeMapping[]
+  masterMappings?: MasterCodeMapping[],
+  formulaMappings?: MasterRumusMapping[]
 ): MaterialRekapRow[] {
   const todayStr = new Date().toISOString().slice(0, 10);
   const currentWeek = getCurrentWeekString();
   const mappings = masterMappings || getMasterCodeMappings();
+  const formulas = formulaMappings || getFormulaMappings();
 
   // Mengelompokkan berdasarkan Bahan Baku + Jenis + Hari
   const groups = new Map<string, {
@@ -314,11 +341,13 @@ export function autoConvertProcessToRekap(
     hari: string;
     totalQty: number;
     codes: string[];
+    planQty: number;
+    formulaNotes: string[];
   }>();
 
   for (const proc of processRows) {
     const rowDay = proc.hari || getDayNameFromSheet(proc.sheetName || defaultDayOrSheetName);
-    const extractedList = extractMaterialItemsFromProcessRow(proc, mappings);
+    const extractedList = extractMaterialItemsFromProcessRow(proc, mappings, formulas);
 
     for (const item of extractedList) {
       const key = `${item.bahanBaku}_${item.isRoll ? 'roll' : 'lipat'}_${rowDay}`;
@@ -329,12 +358,18 @@ export function autoConvertProcessToRekap(
           hari: rowDay,
           totalQty: item.qty,
           codes: item.kode ? [item.kode] : [],
+          planQty: item.planQty ?? item.qty,
+          formulaNotes: item.formulaNote ? [item.formulaNote] : [],
         });
       } else {
         const existing = groups.get(key)!;
         existing.totalQty += item.qty;
+        existing.planQty += (item.planQty ?? item.qty);
         if (item.kode && !existing.codes.includes(item.kode)) {
           existing.codes.push(item.kode);
+        }
+        if (item.formulaNote && !existing.formulaNotes.includes(item.formulaNote)) {
+          existing.formulaNotes.push(item.formulaNote);
         }
       }
     }
@@ -345,21 +380,28 @@ export function autoConvertProcessToRekap(
 
   groups.forEach((g) => {
     const safeHari = (g.hari || 'senin').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const roundedQty = Math.round((g.totalQty + Number.EPSILON) * 100) / 100;
+    const roundedPlan = Math.round((g.planQty + Number.EPSILON) * 100) / 100;
+    const rawCodes = g.codes.filter(Boolean).join(', ');
+    const noteSuffix = g.formulaNotes.length > 0 ? ` [📐 ${g.formulaNotes.join('; ')}]` : '';
+
     result.push({
       id: generateUniqueRowId(`rekap-mat-${safeHari}-${index++}`),
       week: currentWeek,
       tanggal: todayStr,
       jenis: g.isRoll ? 'Kasa Roll' : 'Kasa Lipat',
       nama: g.bahanBaku, // BAHAN BAKU: 24/20, 24/20 Lebar 19cm, 24/17 Lebar 8cm, SHQ, dll.
-      qty: g.totalQty, // Total kuantitas bahan
+      qty: roundedQty, // Total kuantitas bahan hasil perhitungan rumus
       hari: g.hari, // Hari pengerjaan (Senin, Selasa, dll.)
       sumber: 'MR', // DEFAULT MR
       status: 'Belum', // DEFAULT BELUM
-      keterangan: g.codes.filter(Boolean).join(', '), // KODE PRODUK MASUK KE KETERANGAN
+      keterangan: rawCodes + noteSuffix, // KODE PRODUK + CATATAN RUMUS
       oleh: '',
       waktu: '',
       noMr: '',
       isHighlighted: false,
+      planQty: roundedPlan,
+      formulaApplied: g.formulaNotes.length > 0 ? g.formulaNotes.join('; ') : undefined,
     });
   });
 

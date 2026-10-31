@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MaterialRekapRow, DailyProcessRow, MasterCodeMapping, FoldingCuttingItem, PriorWeekPlanMeta } from './types/material';
+import { MaterialRekapRow, DailyProcessRow, MasterCodeMapping, MasterRumusMapping, FoldingCuttingItem, PriorWeekPlanMeta } from './types/material';
 import {
   autoConvertProcessToRekap,
   exportToExcel,
@@ -12,7 +12,18 @@ import {
   saveMasterCodeMappings,
   subscribeToMasterCodeUpdates,
 } from './utils/masterCodeStorage';
-import { getSavedGasUrl, fetchMasterCodesFromGas, saveMasterCodesToGas } from './services/googleSheets';
+import {
+  getFormulaMappings,
+  saveFormulaMappings,
+  subscribeFormulaChanges,
+} from './utils/formulaStorage';
+import {
+  getSavedGasUrl,
+  fetchMasterCodesFromGas,
+  saveMasterCodesToGas,
+  fetchMasterRumusFromGas,
+  saveMasterRumusToGas,
+} from './services/googleSheets';
 import { Header } from './components/Header';
 import { MaterialTable } from './components/MaterialTable';
 import { DailyProcessTable } from './components/DailyProcessTable';
@@ -20,6 +31,7 @@ import { ScheduleSummary } from './components/ScheduleSummary';
 import { SOPModule } from './components/SOPModule';
 import { UploadModal } from './components/UploadModal';
 import { MasterCodeModal } from './components/MasterCodeModal';
+import { MasterRumusModal } from './components/MasterRumusModal';
 import { GoogleSheetsModal } from './components/GoogleSheetsModal';
 import { ConfirmClearModal } from './components/ConfirmClearModal';
 import { FoldingCuttingView } from './components/FoldingCuttingView';
@@ -50,6 +62,7 @@ export default function App() {
   const [activeDayFilter, setActiveDayFilter] = useState<string>('Semua');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isMasterOpen, setIsMasterOpen] = useState(false);
+  const [isMasterRumusOpen, setIsMasterRumusOpen] = useState(false);
   const [isGoogleSheetsOpen, setIsGoogleSheetsOpen] = useState(false);
   const [isConfirmClearOpen, setIsConfirmClearOpen] = useState(false);
   const [isDeploymentOpen, setIsDeploymentOpen] = useState(false);
@@ -58,6 +71,9 @@ export default function App() {
 
   // Master Code Mappings State
   const [masterCodes, setMasterCodes] = useState<MasterCodeMapping[]>(() => getMasterCodeMappings());
+
+  // Master Rumus Mappings State
+  const [formulas, setFormulas] = useState<MasterRumusMapping[]>(() => getFormulaMappings());
 
   // Detected Folding & Cutting Items from Excel (Default: ignored)
   const [detectedFC, setDetectedFC] = useState<FoldingCuttingItem[]>(() => {
@@ -253,8 +269,12 @@ export default function App() {
 
   // Real-time synchronization listener for Master Codes across tabs and cloud
   useEffect(() => {
-    const unsubscribe = subscribeToMasterCodeUpdates((updatedCodes) => {
+    const unsubscribeCodes = subscribeToMasterCodeUpdates((updatedCodes) => {
       setMasterCodes(updatedCodes);
+    });
+
+    const unsubscribeFormulas = subscribeFormulaChanges((updatedFormulas) => {
+      setFormulas(updatedFormulas);
     });
 
     const gasUrl = getSavedGasUrl();
@@ -267,12 +287,41 @@ export default function App() {
           }
         })
         .catch(() => {});
+
+      fetchMasterRumusFromGas(gasUrl)
+        .then((cloudFormulas) => {
+          if (cloudFormulas && cloudFormulas.length > 0) {
+            setFormulas(cloudFormulas);
+            saveFormulaMappings(cloudFormulas);
+          }
+        })
+        .catch(() => {});
     }
 
     return () => {
-      unsubscribe();
+      unsubscribeCodes();
+      unsubscribeFormulas();
     };
   }, []);
+
+  // Master Rumus Operations
+  const handleSaveFormulas = (updatedFormulas: MasterRumusMapping[]) => {
+    setFormulas(updatedFormulas);
+    saveFormulaMappings(updatedFormulas);
+    const gasUrl = getSavedGasUrl();
+    if (gasUrl) {
+      saveMasterRumusToGas(gasUrl, updatedFormulas).catch(() => {});
+    }
+    // Remap rekapitulasi material dengan rumus terbaru
+    const sourceRows = rawProcessData.length > 0 ? rawProcessData : processData;
+    if (sourceRows.length > 0) {
+      const remapped = autoConvertProcessToRekap(sourceRows, sheetName, masterCodes, updatedFormulas);
+      setMaterialData(remapped);
+      showToast(`Master rumus disimpan & ${remapped.length} baris material disinkronkan!`);
+    } else {
+      showToast('Master rumus berhasil disimpan!');
+    }
+  };
 
   // Material Table Operations
   const handleUpdateMaterial = (id: string, updated: Partial<MaterialRekapRow>) => {
@@ -475,12 +524,14 @@ export default function App() {
       <Header
         onOpenUpload={() => setIsUploadOpen(true)}
         onOpenMaster={() => setIsMasterOpen(true)}
+        onOpenMasterRumus={() => setIsMasterRumusOpen(true)}
         onOpenGoogleSheets={() => setIsGoogleSheetsOpen(true)}
         onOpenFoldingCutting={() => setActiveView('folding-cutting')}
         onOpenDeployment={() => setIsDeploymentOpen(true)}
         fcCount={detectedFC.length}
         fcIncludedCount={fcIncludedCount}
         masterCount={masterCodes.length}
+        formulaCount={formulas.length}
         onClearData={handleOpenClearModal}
         onExport={handleExport}
         activeView={activeView}
@@ -559,6 +610,15 @@ export default function App() {
         onClose={() => setIsMasterOpen(false)}
         masterCodes={masterCodes}
         onSaveMasterCodes={handleSaveMasterCodes}
+      />
+
+      {/* Master Rumus Modal (Perhitungan Kasa Roll & Slitting Khusus) */}
+      <MasterRumusModal
+        isOpen={isMasterRumusOpen}
+        onClose={() => setIsMasterRumusOpen(false)}
+        masterCodes={masterCodes}
+        formulas={formulas}
+        onSaveFormulas={handleSaveFormulas}
       />
 
       {/* Google Sheets Sync Modal */}

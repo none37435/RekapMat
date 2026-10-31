@@ -2,6 +2,22 @@ export type SumberType = 'MR' | 'OS' | 'SGC' | 'CN' | 'CEKSTOK' | 'PLESTER' | 'S
 
 export type StatusType = 'Sudah' | 'Belum' | 'Sambung' | 'Kurang' | 'CEKSTOK' | string;
 
+export type FormulaType = 'MULTIPLIER' | 'SLITTING' | 'DIVIDER' | 'CUSTOM';
+
+export interface MasterRumusMapping {
+  id?: string;
+  kode: string;                // Kode produk target (misal: '8320311RB', 'POLIFIX')
+  namaProduk?: string;         // Opsional: pola nama produk (misal: 'POLIFIX')
+  tipeRumus: FormulaType;      // 'MULTIPLIER' | 'SLITTING' | 'DIVIDER' | 'CUSTOM'
+  faktor?: number;             // Untuk MULTIPLIER (misal 2.7) atau DIVIDER
+  lebarMaster?: number;        // Untuk SLITTING (default: 110 cm)
+  spekLebar?: number;          // Untuk SLITTING: lebar produk (misal 5, 10, 15, 20 cm)
+  rumusCustom?: string;        // Untuk CUSTOM: ekspresi matematika (misal: "qty * 2.7")
+  satuanHasil?: string;        // Misal: 'meter', 'roll induk', 'roll'
+  keterangan?: string;         // Catatan/alasan perhitungan untuk operator
+  berlakuUntuk?: 'Kasa Roll' | 'Semua'; // Default 'Kasa Roll'
+}
+
 export interface MaterialRekapRow {
   id: string;
   week: string;
@@ -17,6 +33,8 @@ export interface MaterialRekapRow {
   waktu: string;
   noMr: string;
   isHighlighted?: boolean;
+  planQty?: number;
+  formulaApplied?: string;
 }
 
 export interface DailyProcessRow {

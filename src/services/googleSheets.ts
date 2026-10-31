@@ -1,4 +1,4 @@
-import { MaterialRekapRow, DailyProcessRow, MasterCodeMapping, StatusType, SumberType } from '../types/material';
+import { MaterialRekapRow, DailyProcessRow, MasterCodeMapping, MasterRumusMapping, StatusType, SumberType } from '../types/material';
 
 export const GAS_URL_STORAGE_KEY = 'rekap_gas_web_app_url_v1';
 
@@ -286,6 +286,46 @@ export async function saveMasterCodesToGas(url: string, masterCodes: MasterCodeM
 }
 
 /**
+ * Mengambil master rumus realtime dari cloud Google Sheets via Apps Script.
+ */
+export async function fetchMasterRumusFromGas(url: string): Promise<MasterRumusMapping[] | null> {
+  try {
+    const res = await callGasApi<{
+      status: string;
+      masterRumus?: MasterRumusMapping[];
+    }>(url, 'GET', { action: 'getMasterRumus' });
+
+    if (res.status === 'success' && Array.isArray(res.masterRumus)) {
+      return res.masterRumus;
+    }
+    return null;
+  } catch (err) {
+    console.warn('Gagal memuat master rumus dari Google Apps Script:', err);
+    return null;
+  }
+}
+
+/**
+ * Menyimpan master rumus ke cloud Google Sheets via Apps Script agar tersinkronisasi di semua perangkat.
+ */
+export async function saveMasterRumusToGas(url: string, masterRumus: MasterRumusMapping[]): Promise<boolean> {
+  try {
+    const res = await callGasApi<{
+      status: string;
+      message?: string;
+    }>(url, 'POST', {
+      action: 'saveMasterRumus',
+      masterRumus,
+    });
+
+    return res.status === 'success';
+  } catch (err) {
+    console.warn('Gagal menyimpan master rumus ke Google Apps Script:', err);
+    return false;
+  }
+}
+
+/**
  * Template skrip Google Apps Script (Code.gs) siap pakai yang bisa disalin user.
  */
 export const GOOGLE_APPS_SCRIPT_TEMPLATE = `/**
@@ -392,6 +432,14 @@ function handleRequest(e, method) {
 
     if (action === 'saveMasterCodes') {
       return handleSaveMasterCodes(ss, params.masterCodes);
+    }
+
+    if (action === 'getMasterRumus') {
+      return handleGetMasterRumus(ss);
+    }
+
+    if (action === 'saveMasterRumus') {
+      return handleSaveMasterRumus(ss, params.masterRumus);
     }
 
     return jsonResponse({ status: 'error', message: 'Aksi tidak dikenal: ' + action });
@@ -613,7 +661,7 @@ function handleSyncData(ss, params) {
 }
 
 function handleGetMasterCodes(ss) {
-  var sheet = ss.getSheetByName('Master_Kode');
+  var sheet = ss.getSheetByName('Master Kode') || ss.getSheetByName('Master_Kode');
   if (!sheet) {
     return jsonResponse({ status: 'success', masterCodes: [] });
   }
@@ -636,9 +684,9 @@ function handleSaveMasterCodes(ss, codes) {
   if (!Array.isArray(codes)) {
     return jsonResponse({ status: 'error', message: 'Format master codes tidak valid' });
   }
-  var sheet = ss.getSheetByName('Master_Kode');
+  var sheet = ss.getSheetByName('Master Kode') || ss.getSheetByName('Master_Kode');
   if (!sheet) {
-    sheet = ss.insertSheet('Master_Kode');
+    sheet = ss.insertSheet('Master Kode');
   }
   sheet.clear();
   var output = [['Kode Produk', 'Bahan Baku', 'Jenis', 'Catatan']];
@@ -656,6 +704,65 @@ function handleSaveMasterCodes(ss, codes) {
   sheet.getRange(1, 1, 1, 4).setBackground('#0F766E').setFontColor('#FFFFFF').setFontWeight('bold');
   sheet.setFrozenRows(1);
   return jsonResponse({ status: 'success', count: codes.length, message: 'Master kode berhasil disimpan ke cloud!' });
+}
+
+function handleGetMasterRumus(ss) {
+  var sheet = ss.getSheetByName('Master Rumus') || ss.getSheetByName('Master_Rumus');
+  if (!sheet) {
+    return jsonResponse({ status: 'success', masterRumus: [] });
+  }
+  var data = sheet.getDataRange().getValues();
+  var formulas = [];
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (!row || !row[0]) continue;
+    formulas.push({
+      kode: String(row[0]).trim().toUpperCase(),
+      namaProduk: row[1] ? String(row[1]).trim() : undefined,
+      tipeRumus: String(row[2] || 'MULTIPLIER').trim().toUpperCase(),
+      faktor: row[3] !== '' && !isNaN(Number(row[3])) ? Number(row[3]) : undefined,
+      lebarMaster: row[4] !== '' && !isNaN(Number(row[4])) ? Number(row[4]) : undefined,
+      spekLebar: row[5] !== '' && !isNaN(Number(row[5])) ? Number(row[5]) : undefined,
+      rumusCustom: row[6] ? String(row[6]).trim() : undefined,
+      satuanHasil: row[7] ? String(row[7]).trim() : undefined,
+      keterangan: row[8] ? String(row[8]).trim() : undefined,
+      berlakuUntuk: row[9] ? String(row[9]).trim() : 'Kasa Roll'
+    });
+  }
+  return jsonResponse({ status: 'success', masterRumus: formulas });
+}
+
+function handleSaveMasterRumus(ss, formulas) {
+  if (!Array.isArray(formulas)) {
+    return jsonResponse({ status: 'error', message: 'Format master rumus tidak valid' });
+  }
+  var sheet = ss.getSheetByName('Master Rumus') || ss.getSheetByName('Master_Rumus');
+  if (!sheet) {
+    sheet = ss.insertSheet('Master Rumus');
+  }
+  sheet.clear();
+  var headers = ['Kode Produk', 'Nama Produk', 'Tipe Rumus', 'Faktor', 'Lebar Master (cm)', 'Spek Lebar (cm)', 'Rumus Custom', 'Satuan', 'Keterangan', 'Kategori'];
+  var output = [headers];
+  for (var i = 0; i < formulas.length; i++) {
+    var f = formulas[i];
+    if (!f || !f.kode) continue;
+    output.push([
+      String(f.kode).trim().toUpperCase(),
+      f.namaProduk ? String(f.namaProduk).trim() : '',
+      String(f.tipeRumus || 'MULTIPLIER').toUpperCase(),
+      f.faktor != null ? f.faktor : '',
+      f.lebarMaster != null ? f.lebarMaster : '',
+      f.spekLebar != null ? f.spekLebar : '',
+      f.rumusCustom ? String(f.rumusCustom).trim() : '',
+      f.satuanHasil ? String(f.satuanHasil).trim() : '',
+      f.keterangan ? String(f.keterangan).trim() : '',
+      f.berlakuUntuk ? String(f.berlakuUntuk).trim() : 'Kasa Roll'
+    ]);
+  }
+  sheet.getRange(1, 1, output.length, headers.length).setValues(output);
+  sheet.getRange(1, 1, 1, headers.length).setBackground('#4338CA').setFontColor('#FFFFFF').setFontWeight('bold');
+  sheet.setFrozenRows(1);
+  return jsonResponse({ status: 'success', count: formulas.length, message: 'Master rumus berhasil disimpan ke cloud!' });
 }
 
 function findCol(headers, names) {

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { MaterialRekapRow, StatusType, SumberType } from '../types/material';
-import { Search, Plus, Trash2, Filter, CheckCheck, Highlighter, Calendar, ChevronDown, Scissors } from 'lucide-react';
+import { Search, Plus, Trash2, Filter, CheckCheck, Highlighter, Calendar, ChevronDown, Scissors, Calculator } from 'lucide-react';
 
 interface MaterialTableProps {
   rows: MaterialRekapRow[];
@@ -427,6 +427,15 @@ export const MaterialTable: React.FC<MaterialTableProps> = ({
                       onChange={(e) => onUpdateRow(r.id, { qty: Number(e.target.value) || 0 })}
                       className="w-full text-right bg-transparent border-0 focus:ring-1 focus:ring-emerald-500 rounded px-1 -mx-1 py-0.5 font-bold"
                     />
+                    {r.formulaApplied && (
+                      <div
+                        className="text-[10px] text-indigo-700 font-sans font-semibold flex items-center justify-end gap-1 mt-0.5 cursor-help"
+                        title={`Hasil Rumus: ${r.formulaApplied}${r.planQty != null ? ` (Plan Asli: ${r.planQty})` : ''}`}
+                      >
+                        <Calculator className="w-2.5 h-2.5 text-indigo-600 shrink-0" />
+                        <span>Rumus</span>
+                      </div>
+                    )}
                   </td>
 
                   {/* Hari with Colored Dropdown Badge */}

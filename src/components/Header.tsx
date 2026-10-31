@@ -7,6 +7,7 @@ import {
   Trash2,
   FileSpreadsheet,
   Database,
+  Calculator,
   Cloud,
   ChevronRight,
   Scissors,
@@ -16,12 +17,14 @@ import {
 interface HeaderProps {
   onOpenUpload: () => void;
   onOpenMaster: () => void;
+  onOpenMasterRumus?: () => void;
   onOpenGoogleSheets: () => void;
   onOpenFoldingCutting?: () => void;
   onOpenDeployment?: () => void;
   fcCount?: number;
   fcIncludedCount?: number;
   masterCount: number;
+  formulaCount?: number;
   onClearData: () => void;
   onExport: () => void;
   activeView: 'process' | 'material' | 'summary' | 'sop' | 'folding-cutting';
@@ -34,12 +37,14 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   onOpenUpload,
   onOpenMaster,
+  onOpenMasterRumus,
   onOpenGoogleSheets,
   onOpenFoldingCutting,
   onOpenDeployment,
   fcCount = 0,
   fcIncludedCount = 0,
   masterCount,
+  formulaCount = 0,
   onClearData,
   onExport,
   activeView,
@@ -350,6 +355,35 @@ export const Header: React.FC<HeaderProps> = ({
                       </div>
                     </div>
                     <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600" />
+                  </button>
+
+                  {/* 3.1. Master Rumus (Konversi Bahan Baku) */}
+                  <button
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      onOpenMasterRumus?.();
+                    }}
+                    className="w-full flex items-center justify-between p-2 rounded-lg text-left hover:bg-indigo-50/70 transition-colors group"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-100 group-hover:bg-indigo-200 flex items-center justify-center text-indigo-800">
+                        <Calculator className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-slate-900">
+                            Master Rumus
+                          </span>
+                          <span className="px-1.5 py-0.2 bg-indigo-700 text-white rounded-full text-[10px] font-mono">
+                            {formulaCount}
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-indigo-700">
+                          Konversi Kasa Roll, 2.7m, Slitting 110, dll.
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-indigo-600" />
                   </button>
 
                   {/* 3.5. Kelola Folding & Cutting Excel */}
