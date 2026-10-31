@@ -271,9 +271,12 @@ export function extractMaterialItemsFromProcessRow(
     Number(proc.inspection || 0)
   ) || 0;
 
-  // Analisis porsi inspection vs sambung wrapper vs produksi (slitting / folding / cutting)
+  // Analisis porsi inspection vs sambung wrapper vs prior week sisa slit vs produksi
   const rawInspection = Number(proc.inspection) || 0;
   const rawSambung = Number(proc.sambung) || 0;
+  const rawSlitting = Number(proc.slitting) || 0;
+  const rawFolding = Number(proc.folding) || 0;
+  const rawCutting = Number(proc.cutting) || 0;
 
   const isExplicitInspection =
     namaProd.includes('INSPECTION') ||
@@ -287,6 +290,9 @@ export function extractMaterialItemsFromProcessRow(
     namaProd.includes('WRAPPER') ||
     ket.toUpperCase().includes('SAMBUNG') ||
     ket.toUpperCase().includes('WRAPPER');
+
+  // Deteksi rujukan sisa slit/cut week lalu (misal: "SLIT W4 (1)", "SISA SLIT W1")
+  const priorRef = parsePriorWeekReference(ket, namaProd);
 
   let qtyInspection = 0;
   let qtySambung = 0;
@@ -303,19 +309,23 @@ export function extractMaterialItemsFromProcessRow(
     qtyProduksi = 0;
     qtySambung = 0;
   } else {
-    // Baris proses pengerjaan (misal 8320311RB, 8320314RB) yang memiliki porsi Slitting, Sambung Wrapper, dan/atau Inspection
-    const effectiveTotal = Math.max(
-      total,
-      Number(proc.slitting || 0) +
-        Number(proc.folding || 0) +
-        Number(proc.cutting || 0) +
-        rawSambung +
-        rawInspection
-    );
-    qtyInspection = Math.min(effectiveTotal, rawInspection);
-    const remAfterInsp = Math.max(0, effectiveTotal - qtyInspection);
-    qtySambung = Math.min(remAfterInsp, rawSambung);
-    qtyProduksi = Math.max(0, remAfterInsp - qtySambung);
+    // Jika baris pekerjaan memiliki rujukan sisa slit week lalu (misal: "SLIT W4") dan ada proses folding/cutting:
+    // Bagian folding/cutting tersebut menggunakan sisa roll yang sudah ada (bukan bahan baru dari gudang).
+    // Jika baris ini juga memiliki proses Slitting, maka bahan mentah yang ditarik HANYA porsi slitting-nya saja!
+    if (priorRef.isMatch && (rawFolding > 0 || rawCutting > 0)) {
+      qtyInspection = rawInspection;
+      qtySambung = rawSambung;
+      qtyProduksi = rawSlitting; // Murni porsi slitting yang membutuhkan bahan baku baru!
+    } else {
+      const effectiveTotal = Math.max(
+        total,
+        rawSlitting + rawFolding + rawCutting + rawSambung + rawInspection
+      );
+      qtyInspection = Math.min(effectiveTotal, rawInspection);
+      const remAfterInsp = Math.max(0, effectiveTotal - qtyInspection);
+      qtySambung = Math.min(remAfterInsp, rawSambung);
+      qtyProduksi = Math.max(0, remAfterInsp - qtySambung);
+    }
   }
 
   // Helper untuk menerapkan rumus perhitungan konversi jika item adalah Kasa Roll
@@ -455,19 +465,33 @@ export function extractMaterialItemsFromProcessRow(
     }
   }
 
-  // PRIORITAS 2: Cek keterangan gabungan dengan pemisah titik koma, contoh: "24/20 L26 SGC (1); 24/20S (1)"
+  // PRIORITAS 2: Cek keterangan gabungan dengan pemisah titik koma, contoh: "24/20S (1); SLIT W4 (1)" atau "24/20 L26 SGC (1); 24/20S (1)"
   if (ket.includes(';')) {
     const parts = ket.split(';').map((p) => p.trim()).filter(Boolean);
     const subItems: ExtractedMaterialItem[] = [];
-    for (const part of parts) {
-      const pUpper = part.toUpperCase();
-      let subQty = total;
 
-      // Alokasi kuantitas jika ada proses khusus (slitting / cutting)
-      if (pUpper.includes('L26') || pUpper.includes('CUT')) {
-        if (Number(proc.cutting) > 0) subQty = Number(proc.cutting);
-      } else if (pUpper.includes('24/20S') || pUpper.includes('SLIT')) {
-        if (Number(proc.slitting) > 0) subQty = Number(proc.slitting);
+    // Cek apakah ada bagian dari keterangan yang merujuk pada sisa slit/cut week sebelumnya (misal: "SLIT W4 (1)", "SISA SLIT W1")
+    const hasPriorSlitPart = parts.some((p) => parsePriorWeekReference(p, '').isMatch);
+
+    for (const part of parts) {
+      // 1. Jika bagian ini adalah rujukan sisa slit/cut week sebelumnya (misal: "SLIT W4 (1)"),
+      // bagian ini untuk mesin folding/cutting dan BUKAN bahan mentah baru yang perlu ditarik dari gudang.
+      const partPrior = parsePriorWeekReference(part, '');
+      if (partPrior.isMatch) {
+        continue; // Lewati dari tarikan rekap material baru!
+      }
+
+      const pUpper = part.toUpperCase();
+      let subQty = qtyProduksi;
+
+      // 2. Alokasi kuantitas jika ada proses khusus
+      if (hasPriorSlitPart && rawSlitting > 0) {
+        // Jika bagian lain adalah sisa slit (untuk folding), maka bagian bahan mentah ini khusus untuk slitting
+        subQty = rawSlitting;
+      } else if (pUpper.includes('L26') || pUpper.includes('CUT')) {
+        if (rawCutting > 0) subQty = rawCutting;
+      } else if (pUpper.includes('24/20S')) {
+        if (rawSlitting > 0) subQty = rawSlitting;
       }
 
       const parsed = parseSingleMaterialSegment(part, subQty, kode, namaProd);
@@ -479,7 +503,7 @@ export function extractMaterialItemsFromProcessRow(
 
   // PRIORITAS 3: Analisis teks gabungan keterangan + nama produk + kode
   const combinedText = `${ket} ${namaProd} ${kode}`.trim();
-  const parsedItem = parseSingleMaterialSegment(combinedText, total, kode, namaProd);
+  const parsedItem = parseSingleMaterialSegment(combinedText, qtyProduksi, kode, namaProd);
   const items = createSubItemsForBahan([parsedItem.bahanBaku], parsedItem.isRoll, kode);
   return applyFormula(items.length > 0 ? items : [parsedItem]);
 }

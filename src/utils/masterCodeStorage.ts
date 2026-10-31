@@ -56,6 +56,12 @@ export const INITIAL_MASTER_CODES: MasterCodeMapping[] = [
     catatan: 'Slit W1 bahan 24/20s',
   },
   {
+    kode: 'S0645',
+    bahanBaku: '24/20s',
+    jenis: 'Kasa Lipat',
+    catatan: 'HOS PAK KASA SNA 4,5x3cm (Bahan 24/20s)',
+  },
+  {
     kode: 'S0144',
     bahanBaku: '24/20s',
     jenis: 'Kasa Lipat',
