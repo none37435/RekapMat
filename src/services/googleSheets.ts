@@ -27,12 +27,14 @@ export interface GasImportResult {
   message?: string;
 }
 
+export const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwX3oo6gFHWhtefBeqUzMf2wLi1pFO0aMkJuet2URSWTWr4vbvMh6JdTACgu4Zx-vUlkw/exec';
+
 /**
- * Mengambil URL Google Apps Script yang tersimpan di localStorage.
+ * Mengambil URL Google Apps Script yang tersimpan di localStorage (atau default URL).
  */
 export function getSavedGasUrl(): string {
-  if (typeof window === 'undefined') return '';
-  return localStorage.getItem(GAS_URL_STORAGE_KEY) || '';
+  if (typeof window === 'undefined') return DEFAULT_GAS_URL;
+  return localStorage.getItem(GAS_URL_STORAGE_KEY) || DEFAULT_GAS_URL;
 }
 
 /**
@@ -305,12 +307,46 @@ export const GOOGLE_APPS_SCRIPT_TEMPLATE = `/**
  * 9. Salin 'URL Aplikasi Web' yang berakhiran /exec dan masukkan ke aplikasi RekapMat!
  */
 
+// OPSIONAL: Jika skrip dibuat mandiri di script.google.com (bukan dari menu Ekstensi Spreadsheet),
+// Anda dapat memasukkan ID Spreadsheet Google Anda di sini, ATAU biarkan kosong agar otomatis dibuatkan baru:
+var MANUAL_SPREADSHEET_ID = '';
+
 function doGet(e) {
   return handleRequest(e, 'GET');
 }
 
 function doPost(e) {
   return handleRequest(e, 'POST');
+}
+
+function getSpreadsheetInstance(params) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss) return ss;
+
+  var id = MANUAL_SPREADSHEET_ID || (params && (params.spreadsheetId || params.id));
+  var props = PropertiesService.getScriptProperties();
+  if (!id) {
+    id = props.getProperty('SPREADSHEET_ID');
+  }
+
+  if (id) {
+    try {
+      var opened = SpreadsheetApp.openById(id);
+      if (opened) {
+        props.setProperty('SPREADSHEET_ID', id);
+        return opened;
+      }
+    } catch (e) {}
+  }
+
+  // Jika belum ada spreadsheet, otomatis buat spreadsheet baru di Google Drive!
+  try {
+    var newSs = SpreadsheetApp.create('Rekap Material & Rencana Proses Mesin');
+    props.setProperty('SPREADSHEET_ID', newSs.getId());
+    return newSs;
+  } catch (err) {
+    throw new Error('Gagal mengakses atau membuat Spreadsheet: ' + err.toString());
+  }
 }
 
 function handleRequest(e, method) {
@@ -330,14 +366,14 @@ function handleRequest(e, method) {
   }
 
   var action = params.action || 'ping';
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getSpreadsheetInstance(params);
 
   try {
     if (action === 'ping') {
       return jsonResponse({
         status: 'ok',
-        title: ss.getName(),
-        spreadsheetUrl: ss.getUrl(),
+        title: ss ? ss.getName() : 'Rekap Material Mesin',
+        spreadsheetUrl: ss ? ss.getUrl() : '',
         message: 'Koneksi Apps Script Berhasil!'
       });
     }
