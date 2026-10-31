@@ -99,10 +99,14 @@ export function sanitizeFormulas(data: unknown): MasterRumusMapping[] {
     const kode = String(rawKode).trim().toUpperCase();
     if (!kode) continue;
 
-    // Kode inspection (misal: 8320311RE, 8320314RE) dan Sambung Wrapper adalah proses terpisah dan tidak boleh memiliki rumus konversi
+    // Kode inspection (misal: 8320311RE, 8320314RE) dan Sambung Wrapper (misal: 8320311SB, 8320314SB) adalah proses terpisah dan tidak boleh memiliki rumus konversi
     if (
       kode === '8320311RE' ||
+      kode === '8320314RE' ||
+      kode === '8320311SB' ||
+      kode === '8320314SB' ||
       kode.endsWith('RE') ||
+      kode.endsWith('SB') ||
       kode.includes('INSPECTION') ||
       kode.includes('SAMBUNG') ||
       kode.includes('WRAPPER')

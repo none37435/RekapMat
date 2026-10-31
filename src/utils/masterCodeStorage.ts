@@ -14,6 +14,12 @@ export const INITIAL_MASTER_CODES: MasterCodeMapping[] = [
     catatan: 'Material roll inspection (plan terpisah dari RB, tanpa rumus konversi)',
   },
   {
+    kode: '8320311SB',
+    bahanBaku: 'Wrapper Poliban',
+    jenis: 'Kasa Roll',
+    catatan: 'Material sambung wrapper (1:1 tanpa rumus konversi)',
+  },
+  {
     kode: '8320314RB',
     bahanBaku: 'Carded Laps 87,5 + Bembliese',
     jenis: 'Kasa Roll',
@@ -24,6 +30,12 @@ export const INITIAL_MASTER_CODES: MasterCodeMapping[] = [
     bahanBaku: 'Carded Laps 87,5 + Bembliese',
     jenis: 'Kasa Roll',
     catatan: 'Material roll inspection (plan terpisah dari RB, tanpa rumus konversi)',
+  },
+  {
+    kode: '8320314SB',
+    bahanBaku: 'Wrapper Poliban Natural',
+    jenis: 'Kasa Roll',
+    catatan: 'Material sambung wrapper (1:1 tanpa rumus konversi)',
   },
   {
     kode: 'S0791',

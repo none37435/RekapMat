@@ -135,14 +135,21 @@ export function findMatchingFormula(
   const cleanKode = (kode || '').trim().toUpperCase();
   const cleanNama = (namaProduk || '').trim().toUpperCase();
 
-  // 8320311RE, inspection mandiri, serta proses Sambung Wrapper adalah proses terpisah (tidak diimplementasikan rumus)
+  // 8320311RE, 8320314RE, 8320311SB, 8320314SB, inspection mandiri, serta proses Sambung Wrapper adalah proses terpisah (tidak diimplementasikan rumus)
   if (
     cleanKode === '8320311RE' ||
+    cleanKode === '8320314RE' ||
+    cleanKode === '8320311SB' ||
+    cleanKode === '8320314SB' ||
     cleanKode.endsWith('RE') ||
+    cleanKode.endsWith('SB') ||
     cleanKode.includes('(INSPECTION)') ||
     cleanKode.includes('(SAMBUNG)') ||
     cleanKode.includes('(WRAPPER)') ||
     cleanNama.includes('8320311RE') ||
+    cleanNama.includes('8320314RE') ||
+    cleanNama.includes('8320311SB') ||
+    cleanNama.includes('8320314SB') ||
     cleanNama.includes('INSPECTION') ||
     cleanNama.includes('SAMBUNG') ||
     cleanNama.includes('WRAPPER')

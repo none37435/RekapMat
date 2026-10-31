@@ -290,7 +290,8 @@ export function extractMaterialItemsFromProcessRow(
     namaProd.includes('SAMBUNG') ||
     namaProd.includes('WRAPPER') ||
     ket.toUpperCase().includes('SAMBUNG') ||
-    ket.toUpperCase().includes('WRAPPER');
+    ket.toUpperCase().includes('WRAPPER') ||
+    kode.toUpperCase().endsWith('SB');
 
   // Deteksi rujukan sisa slit/cut week lalu (misal: "SLIT W4 (1)", "SISA SLIT W1")
   const priorRef = parsePriorWeekReference(ket, namaProd);
@@ -373,6 +374,8 @@ export function extractMaterialItemsFromProcessRow(
     });
   };
 
+  let sambungHandled = false;
+
   // Helper untuk memecah daftar bahan menjadi item produksi, sambung wrapper, dan inspection
   const createSubItemsForBahan = (
     bahanList: string[],
@@ -396,21 +399,37 @@ export function extractMaterialItemsFromProcessRow(
     }
 
     // 2. Porsi sambung wrapper (terpisah, 1:1 tanpa rumus konversi)
-    if (qtySambung > 0) {
-      const sambungKode = sourceKode
-        ? (sourceKode.toUpperCase().includes('SAMBUNG') ? sourceKode : `${sourceKode} (Sambung)`)
-        : 'SAMBUNG WRAPPER';
+    // Sesuai alur proses: Material sambung wrapper untuk 8320311RB/SB adalah "Wrapper Poliban",
+    // dan untuk 8320314RB/SB adalah "Poliban Natural" (Bukan double plan Carded Laps + Bembliese!).
+    if (qtySambung > 0 && !sambungHandled) {
+      sambungHandled = true;
+      const cleanKodeUpper = (sourceKode || '').toUpperCase().trim();
+      const namaUpper = (namaProd || '').toUpperCase().trim();
 
-      for (const b of bahanList) {
-        res.push({
-          bahanBaku: b,
-          qty: qtySambung,
-          kode: sambungKode,
-          isRoll,
-          isInspection: false,
-          isSambung: true,
-        });
+      let sambungBahan: string;
+      let sambungKode = sourceKode;
+
+      if (cleanKodeUpper.startsWith('8320311') || namaUpper.includes('POLIBAN SYN') || namaUpper.includes('8320311')) {
+        sambungBahan = 'Wrapper Poliban';
+        sambungKode = cleanKodeUpper.endsWith('RB') ? cleanKodeUpper.replace(/RB$/i, 'SB') : (sourceKode ? `${sourceKode} (Sambung)` : '8320311SB');
+      } else if (cleanKodeUpper.startsWith('8320314') || namaUpper.includes('POLIBAN NAT') || namaUpper.includes('8320314')) {
+        sambungBahan = 'Wrapper Poliban Natural';
+        sambungKode = cleanKodeUpper.endsWith('RB') ? cleanKodeUpper.replace(/RB$/i, 'SB') : (sourceKode ? `${sourceKode} (Sambung)` : '8320314SB');
+      } else {
+        sambungBahan = bahanList.find((b) => b.toUpperCase().includes('WRAPPER')) || bahanList[0] || 'Wrapper Poliban';
+        sambungKode = sourceKode
+          ? (sourceKode.toUpperCase().includes('SAMBUNG') ? sourceKode : `${sourceKode} (Sambung)`)
+          : 'SAMBUNG WRAPPER';
       }
+
+      res.push({
+        bahanBaku: sambungBahan,
+        qty: qtySambung,
+        kode: sambungKode,
+        isRoll: true,
+        isInspection: false,
+        isSambung: true,
+      });
     }
 
     // 3. Porsi inspection (otomatis dipisahkan; misal 8320311RB dialihkan ke 8320311RE)
@@ -605,7 +624,13 @@ export function autoConvertProcessToRekap(
     let displayName = g.bahanBaku;
     if (g.isInspection && !displayName.toLowerCase().includes('inspection')) {
       displayName = `${displayName} (Inspection)`;
-    } else if (g.isSambung && !displayName.toLowerCase().includes('sambung') && !displayName.toLowerCase().includes('wrapper')) {
+    } else if (
+      g.isSambung &&
+      displayName !== 'Wrapper Poliban Natural' && displayName !== 'Poliban Natural' &&
+      displayName !== 'Wrapper Poliban' &&
+      !displayName.toLowerCase().includes('sambung') &&
+      !displayName.toLowerCase().includes('wrapper')
+    ) {
       displayName = `${displayName} (Sambung Wrapper)`;
     }
 
