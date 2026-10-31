@@ -1,0 +1,25 @@
+# Netlify Configuration for Rekap Material Mesin SPA
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# Single-Page Application (SPA) redirect rule
+# Ensures client-side routes fallback to index.html with HTTP 200
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Recommended security and caching headers
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

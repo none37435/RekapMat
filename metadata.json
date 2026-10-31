@@ -1,0 +1,8 @@
+{
+  "name": "Rekap Material Mesin & Jadwal Produksi",
+  "description": "Sistem otomatisasi rekapitulasi jadwal material mesin, parsing rencana proses produksi harian dari file Excel (.xlsx), pemantauan status pengerjaan, dan modul SOP onboarding manufaktur.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

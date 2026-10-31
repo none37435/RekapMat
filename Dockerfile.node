@@ -1,0 +1,26 @@
+# Alternative Dockerfile using Node.js & Express server.js
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy dependency files
+COPY package*.json ./
+
+# Install dependencies including dev for build
+RUN npm install
+
+# Copy application source
+COPY . .
+
+# Build application
+RUN npm run build
+
+# Set production environment
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOST=0.0.0.0
+
+EXPOSE 3000
+
+# Start Express static server
+CMD ["node", "server.js"]
