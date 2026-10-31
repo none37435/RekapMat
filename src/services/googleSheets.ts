@@ -27,7 +27,7 @@ export interface GasImportResult {
   message?: string;
 }
 
-export const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwX3oo6gFHWhtefBeqUzMf2wLi1pFO0aMkJuet2URSWTWr4vbvMh6JdTACgu4Zx-vUlkw/exec';
+export const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbw6IbhhCpkSUSo7MsOx_gsdeMDti3jPbaCy72AQcP50--7feqJq1IZ9XQGYhuUaBLscwA/exec';
 
 /**
  * Mengambil URL Google Apps Script yang tersimpan di localStorage (atau default URL).
