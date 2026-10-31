@@ -28,6 +28,7 @@ import {
   DailyProcessRow,
   MaterialRekapRow,
   MasterCodeMapping,
+  MasterRumusMapping,
   FoldingCuttingItem,
   PriorWeekPlanMeta,
 } from '../types/material';
@@ -36,6 +37,7 @@ interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   masterCodes: MasterCodeMapping[];
+  formulas?: MasterRumusMapping[];
   priorWeekRows: DailyProcessRow[];
   priorWeekMeta: PriorWeekPlanMeta | null;
   onSavePriorWeekPlan: (rows: DailyProcessRow[], meta: PriorWeekPlanMeta) => void;
@@ -54,6 +56,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   isOpen,
   onClose,
   masterCodes,
+  formulas,
   priorWeekRows,
   priorWeekMeta,
   onSavePriorWeekPlan,
@@ -198,7 +201,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     }
 
     const filteredProcess = filterProcessRowsByFoldingCutting(rawRows, detectedFC);
-    const filteredMaterial = autoConvertProcessToRekap(filteredProcess, label, masterCodes);
+    const filteredMaterial = autoConvertProcessToRekap(filteredProcess, label, masterCodes, formulas);
 
     return {
       processRows: filteredProcess,

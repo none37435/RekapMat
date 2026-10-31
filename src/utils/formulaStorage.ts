@@ -12,6 +12,28 @@ export const INITIAL_FORMULAS: MasterRumusMapping[] = [
     berlakuUntuk: 'Kasa Roll',
   },
   {
+    kode: '8320314RB',
+    targetBahan: 'Carded Laps',
+    namaProduk: 'Poliban Natural (Carded Laps)',
+    tipeRumus: 'RATIO',
+    batchRoll: 110,
+    ratioQty: 40,
+    satuanHasil: 'kg',
+    keterangan: 'Setiap 110 roll butuh 40 kg Carded Laps ((qty * 40) / 110)',
+    berlakuUntuk: 'Kasa Roll',
+  },
+  {
+    kode: '8320314RB',
+    targetBahan: 'Bembliese',
+    namaProduk: 'Poliban Natural (Bembliese)',
+    tipeRumus: 'RATIO',
+    batchRoll: 110,
+    ratioQty: 600,
+    satuanHasil: 'meter',
+    keterangan: 'Setiap 110 roll butuh 600 meter Bembliese ((qty * 600) / 110)',
+    berlakuUntuk: 'Kasa Roll',
+  },
+  {
     kode: 'POLIFIX-5',
     namaProduk: 'Polifix Slitting 5cm',
     tipeRumus: 'SLITTING',
@@ -77,20 +99,23 @@ export function sanitizeFormulas(data: unknown): MasterRumusMapping[] {
     const kode = String(rawKode).trim().toUpperCase();
     if (!kode) continue;
 
-    // 8320311RE adalah proses inspection terpisah dan tidak boleh memiliki rumus konversi
-    if (kode === '8320311RE') continue;
+    // Kode inspection (misal: 8320311RE, 8320314RE) adalah proses inspection terpisah dan tidak boleh memiliki rumus konversi
+    if (kode === '8320311RE' || kode.endsWith('RE') || kode.includes('INSPECTION')) continue;
 
     const rawTipe = String(raw.tipeRumus ?? raw.type ?? 'MULTIPLIER').toUpperCase();
-    const tipeRumus = (['MULTIPLIER', 'SLITTING', 'DIVIDER', 'CUSTOM'].includes(rawTipe)
+    const tipeRumus = (['MULTIPLIER', 'SLITTING', 'DIVIDER', 'RATIO', 'CUSTOM'].includes(rawTipe)
       ? rawTipe
       : 'MULTIPLIER') as MasterRumusMapping['tipeRumus'];
 
     valid.push({
       id: raw.id ? String(raw.id) : undefined,
       kode,
+      targetBahan: raw.targetBahan ? String(raw.targetBahan).trim() : undefined,
       namaProduk: raw.namaProduk ? String(raw.namaProduk).trim() : undefined,
       tipeRumus,
       faktor: raw.faktor != null ? Number(raw.faktor) : undefined,
+      batchRoll: raw.batchRoll != null ? Number(raw.batchRoll) : undefined,
+      ratioQty: raw.ratioQty != null ? Number(raw.ratioQty) : undefined,
       lebarMaster: raw.lebarMaster != null ? Number(raw.lebarMaster) : undefined,
       spekLebar: raw.spekLebar != null ? Number(raw.spekLebar) : undefined,
       rumusCustom: raw.rumusCustom ? String(raw.rumusCustom).trim() : undefined,
@@ -201,12 +226,15 @@ export function exportFormulasToJson(formulas: MasterRumusMapping[]): void {
  * Ekspor master rumus ke format CSV
  */
 export function exportFormulasToCsv(formulas: MasterRumusMapping[]): void {
-  const headers = ['Kode Produk', 'Nama Produk', 'Tipe Rumus', 'Faktor', 'Lebar Master (cm)', 'Spek Lebar (cm)', 'Rumus Custom', 'Satuan', 'Keterangan', 'Kategori'];
+  const headers = ['Kode Produk', 'Target Bahan', 'Nama Produk', 'Tipe Rumus', 'Faktor', 'Batch Roll', 'Ratio Qty', 'Lebar Master (cm)', 'Spek Lebar (cm)', 'Rumus Custom', 'Satuan', 'Keterangan', 'Kategori'];
   const rows = formulas.map((f) => [
     `"${(f.kode || '').replace(/"/g, '""')}"`,
+    `"${(f.targetBahan || '').replace(/"/g, '""')}"`,
     `"${(f.namaProduk || '').replace(/"/g, '""')}"`,
     `"${f.tipeRumus}"`,
     f.faktor != null ? f.faktor : '',
+    f.batchRoll != null ? f.batchRoll : '',
+    f.ratioQty != null ? f.ratioQty : '',
     f.lebarMaster != null ? f.lebarMaster : '',
     f.spekLebar != null ? f.spekLebar : '',
     `"${(f.rumusCustom || '').replace(/"/g, '""')}"`,
@@ -260,9 +288,12 @@ export function parseFormulasFromCsv(csvText: string): MasterRumusMapping[] {
 
   const header = parseRow(lines[0]).map((h) => h.toLowerCase());
   const kodeIdx = header.findIndex((h) => h.includes('kode') || h.includes('code'));
+  const targetBahanIdx = header.findIndex((h) => h.includes('target bahan') || h.includes('bahan'));
   const namaIdx = header.findIndex((h) => h.includes('nama') || h.includes('product'));
   const tipeIdx = header.findIndex((h) => h.includes('tipe') || h.includes('type'));
   const faktorIdx = header.findIndex((h) => h.includes('faktor') || h.includes('factor'));
+  const batchRollIdx = header.findIndex((h) => h.includes('batch roll') || h.includes('batch'));
+  const ratioQtyIdx = header.findIndex((h) => h.includes('ratio qty') || h.includes('rasio') || h.includes('ratio'));
   const lebarMIdx = header.findIndex((h) => h.includes('master') || h.includes('lebar master'));
   const spekIdx = header.findIndex((h) => h.includes('spek') || h.includes('lebar produk'));
   const customIdx = header.findIndex((h) => h.includes('custom') || h.includes('rumus custom'));
@@ -275,16 +306,19 @@ export function parseFormulasFromCsv(csvText: string): MasterRumusMapping[] {
     const kode = kodeIdx >= 0 ? row[kodeIdx] : row[0];
     if (!kode) continue;
 
-    const rawTipe = (tipeIdx >= 0 ? row[tipeIdx] : row[2] || 'MULTIPLIER').toUpperCase();
-    const tipeRumus = (['MULTIPLIER', 'SLITTING', 'DIVIDER', 'CUSTOM'].includes(rawTipe)
+    const rawTipe = (tipeIdx >= 0 ? row[tipeIdx] : row[3] || 'MULTIPLIER').toUpperCase();
+    const tipeRumus = (['MULTIPLIER', 'SLITTING', 'DIVIDER', 'RATIO', 'CUSTOM'].includes(rawTipe)
       ? rawTipe
       : 'MULTIPLIER') as MasterRumusMapping['tipeRumus'];
 
     result.push({
       kode: kode.toUpperCase(),
+      targetBahan: targetBahanIdx >= 0 && row[targetBahanIdx] ? row[targetBahanIdx] : undefined,
       namaProduk: namaIdx >= 0 ? row[namaIdx] : undefined,
       tipeRumus,
       faktor: faktorIdx >= 0 && row[faktorIdx] ? Number(row[faktorIdx]) : undefined,
+      batchRoll: batchRollIdx >= 0 && row[batchRollIdx] ? Number(row[batchRollIdx]) : undefined,
+      ratioQty: ratioQtyIdx >= 0 && row[ratioQtyIdx] ? Number(row[ratioQtyIdx]) : undefined,
       lebarMaster: lebarMIdx >= 0 && row[lebarMIdx] ? Number(row[lebarMIdx]) : undefined,
       spekLebar: spekIdx >= 0 && row[spekIdx] ? Number(row[spekIdx]) : undefined,
       rumusCustom: customIdx >= 0 ? row[customIdx] : undefined,

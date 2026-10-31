@@ -62,6 +62,7 @@ export interface ExtractedMaterialItem {
   isRoll: boolean;
   planQty?: number;
   formulaNote?: string;
+  isInspection?: boolean;
 }
 
 /**
@@ -237,11 +238,49 @@ export function extractMaterialItemsFromProcessRow(
     Number(proc.inspection || 0)
   ) || 0;
 
+  // Analisis porsi inspection vs produksi (slitting / folding / cutting / sambung)
+  const rawInspection = Number(proc.inspection) || 0;
+  const isExplicitInspection =
+    namaProd.includes('INSPECTION') ||
+    namaProd.includes('INSP') ||
+    ket.toUpperCase().includes('INSPECTION') ||
+    ket.toUpperCase().includes('INSP') ||
+    kode.toUpperCase().endsWith('RE');
+
+  let qtyInspection = 0;
+  let qtyProduksi = total;
+
+  if (isExplicitInspection) {
+    // Jika dari nama produk, keterangan, atau kode jelas merupakan inspection (misal: 8320311RE)
+    qtyInspection = total;
+    qtyProduksi = 0;
+  } else if (rawInspection > 0) {
+    // Jika di baris proses pengerjaan (misal 8320311RB) terdapat kolom inspection yang terisi
+    qtyInspection = Math.min(total, rawInspection);
+    qtyProduksi = Math.max(0, total - qtyInspection);
+  }
+
   // Helper untuk menerapkan rumus perhitungan konversi jika item adalah Kasa Roll
   const applyFormula = (items: ExtractedMaterialItem[]): ExtractedMaterialItem[] => {
     return items.map((item) => {
+      // Jika item adalah proses inspection, JANGAN terapkan rumus (1:1 murni)
+      if (item.isInspection) {
+        return {
+          ...item,
+          planQty: item.qty,
+          formulaNote: 'Inspection (1:1 tanpa rumus konversi)',
+        };
+      }
+
       if (item.isRoll) {
-        const matched = findMatchingFormula(item.kode || kode, proc.namaProduk, 'Kasa Roll', formulas);
+        // Cari rumus yang cocok dengan kode, namaProduk, jenis, dan targetBahan spesifik!
+        const matched = findMatchingFormula(
+          item.kode || kode,
+          proc.namaProduk,
+          'Kasa Roll',
+          formulas,
+          item.bahanBaku
+        );
         if (matched) {
           const calc = calculateFormulaQty(item.qty, matched);
           return {
@@ -254,6 +293,47 @@ export function extractMaterialItemsFromProcessRow(
       }
       return item;
     });
+  };
+
+  // Helper untuk memecah daftar bahan menjadi item produksi dan item inspection (jika ada)
+  const createSubItemsForBahan = (
+    bahanList: string[],
+    isRoll: boolean,
+    sourceKode: string
+  ): ExtractedMaterialItem[] => {
+    const res: ExtractedMaterialItem[] = [];
+
+    // 1. Porsi produksi normal (slitting, cutting, roll)
+    if (qtyProduksi > 0) {
+      for (const b of bahanList) {
+        res.push({
+          bahanBaku: b,
+          qty: qtyProduksi,
+          kode: sourceKode,
+          isRoll,
+          isInspection: false,
+        });
+      }
+    }
+
+    // 2. Porsi inspection (otomatis dipisahkan; misal 8320311RB dialihkan ke 8320311RE)
+    if (qtyInspection > 0) {
+      const inspKode = sourceKode.toUpperCase().endsWith('RB')
+        ? sourceKode.replace(/RB$/i, 'RE')
+        : (sourceKode ? `${sourceKode} (Insp)` : 'INSPECTION');
+
+      for (const b of bahanList) {
+        res.push({
+          bahanBaku: b,
+          qty: qtyInspection,
+          kode: inspKode,
+          isRoll,
+          isInspection: true,
+        });
+      }
+    }
+
+    return res;
   };
 
   // PRIORITAS 1: Cek Master Code Mapping (Sistem Master Data)
@@ -270,14 +350,8 @@ export function extractMaterialItemsFromProcessRow(
         const parts = rawBahan.split(/[\+;&]|\s+dan\s+/i).map((p) => p.trim()).filter(Boolean);
         const bahanList = parts.length > 0 ? parts : [rawBahan.trim() || '24/20'];
 
-        for (const b of bahanList) {
-          items.push({
-            bahanBaku: b,
-            qty: total,
-            kode: kode,
-            isRoll: matched.jenis === 'Kasa Roll',
-          });
-        }
+        const subItems = createSubItemsForBahan(bahanList, matched.jenis === 'Kasa Roll', kode);
+        items.push(...subItems);
       }
       if (items.length > 0) {
         return applyFormula(items);
@@ -301,7 +375,8 @@ export function extractMaterialItemsFromProcessRow(
       }
 
       const parsed = parseSingleMaterialSegment(part, subQty, kode, namaProd);
-      subItems.push(parsed);
+      const items = createSubItemsForBahan([parsed.bahanBaku], parsed.isRoll, kode);
+      subItems.push(...(items.length > 0 ? items : [parsed]));
     }
     if (subItems.length > 0) return applyFormula(subItems);
   }
@@ -309,7 +384,8 @@ export function extractMaterialItemsFromProcessRow(
   // PRIORITAS 3: Analisis teks gabungan keterangan + nama produk + kode
   const combinedText = `${ket} ${namaProd} ${kode}`.trim();
   const parsedItem = parseSingleMaterialSegment(combinedText, total, kode, namaProd);
-  return applyFormula([parsedItem]);
+  const items = createSubItemsForBahan([parsedItem.bahanBaku], parsedItem.isRoll, kode);
+  return applyFormula(items.length > 0 ? items : [parsedItem]);
 }
 
 let globalRowCounter = 0;
@@ -321,7 +397,7 @@ export function generateUniqueRowId(prefix = 'mat'): string {
 
 /**
  * Mengelompokkan baris pengerjaan harian menjadi Rekap Material Mesin.
- * Mengelompokkan per Bahan Baku dan per Hari pengerjaan.
+ * Mengelompokkan per Bahan Baku, per Hari pengerjaan, dan memisahkan proses Inspection.
  */
 export function autoConvertProcessToRekap(
   processRows: DailyProcessRow[],
@@ -334,7 +410,7 @@ export function autoConvertProcessToRekap(
   const mappings = masterMappings || getMasterCodeMappings();
   const formulas = formulaMappings || getFormulaMappings();
 
-  // Mengelompokkan berdasarkan Bahan Baku + Jenis + Hari
+  // Mengelompokkan berdasarkan Bahan Baku + Jenis + Hari + Inspection
   const groups = new Map<string, {
     bahanBaku: string;
     isRoll: boolean;
@@ -343,6 +419,7 @@ export function autoConvertProcessToRekap(
     codes: string[];
     planQty: number;
     formulaNotes: string[];
+    isInspection?: boolean;
   }>();
 
   for (const proc of processRows) {
@@ -350,7 +427,9 @@ export function autoConvertProcessToRekap(
     const extractedList = extractMaterialItemsFromProcessRow(proc, mappings, formulas);
 
     for (const item of extractedList) {
-      const key = `${item.bahanBaku}_${item.isRoll ? 'roll' : 'lipat'}_${rowDay}`;
+      // Pisahkan baris inspection agar kuantitasnya tidak tercampur dengan kuantitas meter roll produksi
+      const inspKey = item.isInspection ? '_insp' : '';
+      const key = `${item.bahanBaku}_${item.isRoll ? 'roll' : 'lipat'}_${rowDay}${inspKey}`;
       if (!groups.has(key)) {
         groups.set(key, {
           bahanBaku: item.bahanBaku,
@@ -360,6 +439,7 @@ export function autoConvertProcessToRekap(
           codes: item.kode ? [item.kode] : [],
           planQty: item.planQty ?? item.qty,
           formulaNotes: item.formulaNote ? [item.formulaNote] : [],
+          isInspection: item.isInspection,
         });
       } else {
         const existing = groups.get(key)!;
@@ -385,12 +465,17 @@ export function autoConvertProcessToRekap(
     const rawCodes = g.codes.filter(Boolean).join(', ');
     const noteSuffix = g.formulaNotes.length > 0 ? ` [📐 ${g.formulaNotes.join('; ')}]` : '';
 
+    // Jika proses inspection, beri nama jelas: e.g. "Needle Punch (Inspection)"
+    const displayName = g.isInspection && !g.bahanBaku.toLowerCase().includes('inspection')
+      ? `${g.bahanBaku} (Inspection)`
+      : g.bahanBaku;
+
     result.push({
       id: generateUniqueRowId(`rekap-mat-${safeHari}-${index++}`),
       week: currentWeek,
       tanggal: todayStr,
       jenis: g.isRoll ? 'Kasa Roll' : 'Kasa Lipat',
-      nama: g.bahanBaku, // BAHAN BAKU: 24/20, 24/20 Lebar 19cm, 24/17 Lebar 8cm, SHQ, dll.
+      nama: displayName, // BAHAN BAKU
       qty: roundedQty, // Total kuantitas bahan hasil perhitungan rumus
       hari: g.hari, // Hari pengerjaan (Senin, Selasa, dll.)
       sumber: 'MR', // DEFAULT MR
@@ -402,6 +487,7 @@ export function autoConvertProcessToRekap(
       isHighlighted: false,
       planQty: roundedPlan,
       formulaApplied: g.formulaNotes.length > 0 ? g.formulaNotes.join('; ') : undefined,
+      isInspection: g.isInspection,
     });
   });
 

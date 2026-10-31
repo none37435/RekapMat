@@ -410,13 +410,20 @@ export const MaterialTable: React.FC<MaterialTableProps> = ({
 
                   {/* Nama Material / Bahan Baku */}
                   <td className="py-2 px-3 border-r border-slate-200 font-medium text-slate-900">
-                    <input
-                      type="text"
-                      value={r.nama}
-                      placeholder="24/20, 24/20s, SHQ..."
-                      onChange={(e) => onUpdateRow(r.id, { nama: e.target.value })}
-                      className="w-full bg-transparent border-0 focus:ring-1 focus:ring-emerald-500 rounded px-1 -mx-1 py-0.5"
-                    />
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        value={r.nama}
+                        placeholder="24/20, 24/20s, SHQ..."
+                        onChange={(e) => onUpdateRow(r.id, { nama: e.target.value })}
+                        className="w-full bg-transparent border-0 focus:ring-1 focus:ring-emerald-500 rounded px-1 -mx-1 py-0.5"
+                      />
+                      {r.isInspection && (
+                        <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-semibold border border-amber-300">
+                          QC Insp
+                        </span>
+                      )}
+                    </div>
                   </td>
 
                   {/* Qty */}

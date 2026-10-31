@@ -492,7 +492,8 @@ function handleGetData(ss) {
           oleh: olehIdx >= 0 ? String(row[olehIdx] || '').trim() : '',
           waktu: waktuIdx >= 0 ? String(row[waktuIdx] || '').trim() : '',
           noMr: mrIdx >= 0 ? String(row[mrIdx] || '').trim() : '',
-          isHighlighted: false
+          isHighlighted: false,
+          isInspection: nama.toLowerCase().indexOf('inspection') >= 0
         });
       }
     }
@@ -712,21 +713,43 @@ function handleGetMasterRumus(ss) {
     return jsonResponse({ status: 'success', masterRumus: [] });
   }
   var data = sheet.getDataRange().getValues();
+  if (data.length <= 1) {
+    return jsonResponse({ status: 'success', masterRumus: [] });
+  }
+  var headers = data[0].map(function(h) { return String(h || '').toLowerCase().trim(); });
+  var kodeIdx = findCol(headers, ['kode']);
+  var bahanIdx = findCol(headers, ['target', 'bahan']);
+  var namaIdx = findCol(headers, ['nama', 'produk']);
+  var tipeIdx = findCol(headers, ['tipe', 'type']);
+  var faktorIdx = findCol(headers, ['faktor', 'factor']);
+  var batchIdx = findCol(headers, ['batch']);
+  var ratioIdx = findCol(headers, ['ratio', 'rasio']);
+  var lebarMIdx = findCol(headers, ['master']);
+  var spekIdx = findCol(headers, ['spek']);
+  var customIdx = findCol(headers, ['custom']);
+  var satuanIdx = findCol(headers, ['satuan', 'unit']);
+  var ketIdx = findCol(headers, ['keterangan', 'note']);
+  var katIdx = findCol(headers, ['kategori']);
+
   var formulas = [];
   for (var i = 1; i < data.length; i++) {
     var row = data[i];
-    if (!row || !row[0]) continue;
+    var kode = kodeIdx >= 0 ? String(row[kodeIdx] || '').trim().toUpperCase() : (row[0] ? String(row[0]).trim().toUpperCase() : '');
+    if (!kode) continue;
     formulas.push({
-      kode: String(row[0]).trim().toUpperCase(),
-      namaProduk: row[1] ? String(row[1]).trim() : undefined,
-      tipeRumus: String(row[2] || 'MULTIPLIER').trim().toUpperCase(),
-      faktor: row[3] !== '' && !isNaN(Number(row[3])) ? Number(row[3]) : undefined,
-      lebarMaster: row[4] !== '' && !isNaN(Number(row[4])) ? Number(row[4]) : undefined,
-      spekLebar: row[5] !== '' && !isNaN(Number(row[5])) ? Number(row[5]) : undefined,
-      rumusCustom: row[6] ? String(row[6]).trim() : undefined,
-      satuanHasil: row[7] ? String(row[7]).trim() : undefined,
-      keterangan: row[8] ? String(row[8]).trim() : undefined,
-      berlakuUntuk: row[9] ? String(row[9]).trim() : 'Kasa Roll'
+      kode: kode,
+      targetBahan: bahanIdx >= 0 && row[bahanIdx] ? String(row[bahanIdx]).trim() : undefined,
+      namaProduk: namaIdx >= 0 && row[namaIdx] ? String(row[namaIdx]).trim() : undefined,
+      tipeRumus: (tipeIdx >= 0 && row[tipeIdx] ? String(row[tipeIdx]).trim().toUpperCase() : 'MULTIPLIER'),
+      faktor: faktorIdx >= 0 && row[faktorIdx] !== '' && !isNaN(Number(row[faktorIdx])) ? Number(row[faktorIdx]) : undefined,
+      batchRoll: batchIdx >= 0 && row[batchIdx] !== '' && !isNaN(Number(row[batchIdx])) ? Number(row[batchIdx]) : undefined,
+      ratioQty: ratioIdx >= 0 && row[ratioIdx] !== '' && !isNaN(Number(row[ratioIdx])) ? Number(row[ratioIdx]) : undefined,
+      lebarMaster: lebarMIdx >= 0 && row[lebarMIdx] !== '' && !isNaN(Number(row[lebarMIdx])) ? Number(row[lebarMIdx]) : undefined,
+      spekLebar: spekIdx >= 0 && row[spekIdx] !== '' && !isNaN(Number(row[spekIdx])) ? Number(row[spekIdx]) : undefined,
+      rumusCustom: customIdx >= 0 && row[customIdx] ? String(row[customIdx]).trim() : undefined,
+      satuanHasil: satuanIdx >= 0 && row[satuanIdx] ? String(row[satuanIdx]).trim() : undefined,
+      keterangan: ketIdx >= 0 && row[ketIdx] ? String(row[ketIdx]).trim() : undefined,
+      berlakuUntuk: katIdx >= 0 && row[katIdx] ? String(row[katIdx]).trim() : 'Kasa Roll'
     });
   }
   return jsonResponse({ status: 'success', masterRumus: formulas });
@@ -741,16 +764,19 @@ function handleSaveMasterRumus(ss, formulas) {
     sheet = ss.insertSheet('Master Rumus');
   }
   sheet.clear();
-  var headers = ['Kode Produk', 'Nama Produk', 'Tipe Rumus', 'Faktor', 'Lebar Master (cm)', 'Spek Lebar (cm)', 'Rumus Custom', 'Satuan', 'Keterangan', 'Kategori'];
+  var headers = ['Kode Produk', 'Target Bahan', 'Nama Produk', 'Tipe Rumus', 'Faktor', 'Batch Roll', 'Ratio Qty', 'Lebar Master (cm)', 'Spek Lebar (cm)', 'Rumus Custom', 'Satuan', 'Keterangan', 'Kategori'];
   var output = [headers];
   for (var i = 0; i < formulas.length; i++) {
     var f = formulas[i];
     if (!f || !f.kode) continue;
     output.push([
       String(f.kode).trim().toUpperCase(),
+      f.targetBahan ? String(f.targetBahan).trim() : '',
       f.namaProduk ? String(f.namaProduk).trim() : '',
       String(f.tipeRumus || 'MULTIPLIER').toUpperCase(),
       f.faktor != null ? f.faktor : '',
+      f.batchRoll != null ? f.batchRoll : '',
+      f.ratioQty != null ? f.ratioQty : '',
       f.lebarMaster != null ? f.lebarMaster : '',
       f.spekLebar != null ? f.spekLebar : '',
       f.rumusCustom ? String(f.rumusCustom).trim() : '',

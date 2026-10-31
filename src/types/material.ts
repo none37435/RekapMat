@@ -2,18 +2,21 @@ export type SumberType = 'MR' | 'OS' | 'SGC' | 'CN' | 'CEKSTOK' | 'PLESTER' | 'S
 
 export type StatusType = 'Sudah' | 'Belum' | 'Sambung' | 'Kurang' | 'CEKSTOK' | string;
 
-export type FormulaType = 'MULTIPLIER' | 'SLITTING' | 'DIVIDER' | 'CUSTOM';
+export type FormulaType = 'MULTIPLIER' | 'SLITTING' | 'DIVIDER' | 'RATIO' | 'CUSTOM';
 
 export interface MasterRumusMapping {
   id?: string;
-  kode: string;                // Kode produk target (misal: '8320311RB', 'POLIFIX')
-  namaProduk?: string;         // Opsional: pola nama produk (misal: 'POLIFIX')
-  tipeRumus: FormulaType;      // 'MULTIPLIER' | 'SLITTING' | 'DIVIDER' | 'CUSTOM'
+  kode: string;                // Kode produk target (misal: '8320311RB', '8320314RB', 'POLIFIX')
+  targetBahan?: string;        // Opsional: spesifik untuk bahan tertentu (misal: 'Carded Laps', 'Bembliese') jika multi-material
+  namaProduk?: string;         // Opsional: pola nama produk (misal: 'POLIFIX', 'Poliban Natural')
+  tipeRumus: FormulaType;      // 'MULTIPLIER' | 'SLITTING' | 'DIVIDER' | 'RATIO' | 'CUSTOM'
   faktor?: number;             // Untuk MULTIPLIER (misal 2.7) atau DIVIDER
+  batchRoll?: number;          // Untuk RATIO: basis roll per batch (misal 110 roll)
+  ratioQty?: number;           // Untuk RATIO: kebutuhan bahan per batch (misal 40 kg atau 600 meter)
   lebarMaster?: number;        // Untuk SLITTING (default: 110 cm)
   spekLebar?: number;          // Untuk SLITTING: lebar produk (misal 5, 10, 15, 20 cm)
-  rumusCustom?: string;        // Untuk CUSTOM: ekspresi matematika (misal: "qty * 2.7")
-  satuanHasil?: string;        // Misal: 'meter', 'roll induk', 'roll'
+  rumusCustom?: string;        // Untuk CUSTOM: ekspresi matematika (misal: "qty * 2.7" atau "(qty * 40) / 110")
+  satuanHasil?: string;        // Misal: 'kg', 'meter', 'roll induk', 'roll'
   keterangan?: string;         // Catatan/alasan perhitungan untuk operator
   berlakuUntuk?: 'Kasa Roll' | 'Semua'; // Default 'Kasa Roll'
 }
@@ -35,6 +38,7 @@ export interface MaterialRekapRow {
   isHighlighted?: boolean;
   planQty?: number;
   formulaApplied?: string;
+  isInspection?: boolean;
 }
 
 export interface DailyProcessRow {

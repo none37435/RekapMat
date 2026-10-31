@@ -216,7 +216,7 @@ export default function App() {
       setDetectedFC(newFC);
       const filteredProc = filterProcessRowsByFoldingCutting(rawProcessData, newFC);
       setProcessData(filteredProc);
-      const newMat = autoConvertProcessToRekap(filteredProc, sheetName, masterCodes);
+      const newMat = autoConvertProcessToRekap(filteredProc, sheetName, masterCodes, formulas);
       setMaterialData(newMat);
       showToast(`Data minggu lalu "${meta.fileName}" aktif! ${newFC.filter((i) => i.isPriorWeekSlit).length} sisa slit terhubung.`);
     } else {
@@ -237,7 +237,7 @@ export default function App() {
       setDetectedFC(newFC);
       const filteredProc = filterProcessRowsByFoldingCutting(rawProcessData, newFC);
       setProcessData(filteredProc);
-      const newMat = autoConvertProcessToRekap(filteredProc, sheetName, masterCodes);
+      const newMat = autoConvertProcessToRekap(filteredProc, sheetName, masterCodes, formulas);
       setMaterialData(newMat);
     }
     showToast('Data arsip minggu sebelumnya telah dihapus.');
@@ -259,7 +259,7 @@ export default function App() {
     // Jika sudah ada data proses, perbarui rekap material dengan pemetaan master terbaru
     const sourceRows = rawProcessData.length > 0 ? rawProcessData : processData;
     if (sourceRows.length > 0) {
-      const remapped = autoConvertProcessToRekap(sourceRows, sheetName, updatedCodes);
+      const remapped = autoConvertProcessToRekap(sourceRows, sheetName, updatedCodes, formulas);
       setMaterialData(remapped);
       showToast(`Master kode disimpan & ${remapped.length} baris material disinkronkan!`);
     } else {
@@ -389,7 +389,7 @@ export default function App() {
 
   // Sync Daily Process to Rekap Material
   const handleSyncProcessToMaterial = () => {
-    const converted = autoConvertProcessToRekap(processData, sheetName, masterCodes);
+    const converted = autoConvertProcessToRekap(processData, sheetName, masterCodes, formulas);
     if (converted.length === 0) {
       showToast('Tidak ada data yang dapat dikonversi');
       return;
@@ -476,7 +476,7 @@ export default function App() {
     setDetectedFC(updatedFC);
     const sourceRows = rawProcessData.length > 0 ? rawProcessData : processData;
     const newProcessData = filterProcessRowsByFoldingCutting(sourceRows, updatedFC);
-    const newMaterialData = autoConvertProcessToRekap(newProcessData, sheetName, masterCodes);
+    const newMaterialData = autoConvertProcessToRekap(newProcessData, sheetName, masterCodes, formulas);
 
     setProcessData(newProcessData);
     setMaterialData(newMaterialData);
@@ -597,6 +597,7 @@ export default function App() {
         isOpen={isUploadOpen}
         onClose={() => setIsUploadOpen(false)}
         masterCodes={masterCodes}
+        formulas={formulas}
         priorWeekRows={priorWeekRows}
         priorWeekMeta={priorWeekMeta}
         onSavePriorWeekPlan={handleSavePriorWeekPlan}

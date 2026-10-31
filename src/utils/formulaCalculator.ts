@@ -65,6 +65,14 @@ export function calculateFormulaQty(
       break;
     }
 
+    case 'RATIO': {
+      const batch = Number(formula.batchRoll) || 110;
+      const ratio = Number(formula.ratioQty) || 1;
+      qtyBahan = batch > 0 ? (plan * ratio) / batch : plan;
+      rumusText = `(${plan} × ${ratio}) / ${batch} = ${formatNumber(qtyBahan)} ${satuan}`;
+      break;
+    }
+
     case 'CUSTOM': {
       if (formula.rumusCustom && formula.rumusCustom.trim()) {
         qtyBahan = safeEvalArithmetic(formula.rumusCustom, plan);
@@ -101,15 +109,25 @@ export function formatNumber(num: number): string {
   return num.toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
+function matchesTargetBahan(formulaTargetBahan?: string, itemBahan?: string): boolean {
+  if (!formulaTargetBahan || !formulaTargetBahan.trim()) return true;
+  if (!itemBahan || !itemBahan.trim()) return false;
+  const f = formulaTargetBahan.trim().toUpperCase();
+  const b = itemBahan.trim().toUpperCase();
+  return b.includes(f) || f.includes(b);
+}
+
 /**
  * Mencari rumus yang cocok untuk kode produk atau nama produk tertentu.
  * Khusus diberlakukan untuk kategori Kasa Roll secara default.
+ * Mendukung filter spesifik bahan baku (targetBahan) untuk produk multi-material seperti 8320314RB.
  */
 export function findMatchingFormula(
   kode: string,
   namaProduk: string,
   jenis: string,
-  formulas: MasterRumusMapping[]
+  formulas: MasterRumusMapping[],
+  targetBahan?: string
 ): MasterRumusMapping | undefined {
   if (!Array.isArray(formulas) || formulas.length === 0) return undefined;
 
@@ -118,23 +136,44 @@ export function findMatchingFormula(
   const cleanNama = (namaProduk || '').trim().toUpperCase();
 
   // 8320311RE adalah proses inspection mandiri dan terpisah dari 8320311RB (tidak diimplementasikan rumus)
-  if (cleanKode === '8320311RE' || cleanNama.includes('8320311RE')) {
+  if (
+    cleanKode === '8320311RE' ||
+    cleanKode.endsWith('RE') ||
+    cleanKode.includes('(INSPECTION)') ||
+    cleanNama.includes('8320311RE')
+  ) {
     return undefined;
   }
 
-  // 1. Cek kecocokan kode spesifik (Exact Code Match)
+  // 1. Cek kecocokan kode spesifik (Exact Code Match) dengan prioritas spesifik bahan (targetBahan)
   if (cleanKode) {
-    const exact = formulas.find((f) => {
+    const codeCandidates = formulas.filter((f) => {
       if (!f || !f.kode) return false;
       const targetKode = f.kode.trim().toUpperCase();
       if (targetKode !== cleanKode) return false;
-
-      // Filter kategori: jika berlakuUntuk Kasa Roll, pastikan item berjenis roll
       if (f.berlakuUntuk === 'Kasa Roll' && !isRoll) return false;
       return true;
     });
 
-    if (exact) return exact;
+    if (codeCandidates.length > 0) {
+      // Jika ada targetBahan dan formula yang spesifik bahan, pilih yang cocok
+      if (targetBahan && targetBahan.trim()) {
+        const specificBahanMatch = codeCandidates.find(
+          (f) => f.targetBahan && matchesTargetBahan(f.targetBahan, targetBahan)
+        );
+        if (specificBahanMatch) return specificBahanMatch;
+      }
+
+      // Jika tidak ada yang spesifik bahan atau tidak ada targetBahan, ambil formula tanpa targetBahan
+      const fallbackGeneral = codeCandidates.find((f) => !f.targetBahan || !f.targetBahan.trim());
+      if (fallbackGeneral) return fallbackGeneral;
+
+      // Jika semuanya memiliki targetBahan tapi tidak ada yang cocok dengan targetBahan saat ini
+      if (targetBahan) {
+        return undefined;
+      }
+      return codeCandidates[0];
+    }
   }
 
   // 2. Cek kecocokan nama produk atau pola (misal: "POLIFIX")
@@ -142,9 +181,14 @@ export function findMatchingFormula(
     if (!f) return false;
     if (f.berlakuUntuk === 'Kasa Roll' && !isRoll) return false;
 
-    // Rumus kode spesifik (seperti 8320311RB) tidak boleh dicocokkan secara parsial ke kode/nama lain
+    // Rumus kode spesifik (seperti 8320311RB / 8320314RB) tidak boleh dicocokkan secara parsial ke kode/nama lain
     const targetKode = (f.kode || '').trim().toUpperCase();
-    if (targetKode.startsWith('8320311')) return false;
+    if (targetKode.startsWith('8320311') || targetKode.startsWith('8320314')) return false;
+
+    // Cek kecocokan target bahan jika ada
+    if (targetBahan && f.targetBahan && !matchesTargetBahan(f.targetBahan, targetBahan)) {
+      return false;
+    }
 
     // Cek apakah f.kode cocok sebagai keyword di namaProduk
     const keyword = (f.kode || f.namaProduk || '').trim().toUpperCase();

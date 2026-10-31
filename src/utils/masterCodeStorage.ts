@@ -20,6 +20,12 @@ export const INITIAL_MASTER_CODES: MasterCodeMapping[] = [
     catatan: 'Multi-material: Carded Laps 87,5 & Bembliese',
   },
   {
+    kode: '8320314RE',
+    bahanBaku: 'Carded Laps 87,5 + Bembliese',
+    jenis: 'Kasa Roll',
+    catatan: 'Material roll inspection (plan terpisah dari RB, tanpa rumus konversi)',
+  },
+  {
     kode: 'S0791',
     bahanBaku: '24/20',
     jenis: 'Kasa Lipat',
