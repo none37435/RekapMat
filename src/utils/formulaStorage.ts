@@ -8,16 +8,7 @@ export const INITIAL_FORMULAS: MasterRumusMapping[] = [
     tipeRumus: 'MULTIPLIER',
     faktor: 2.7,
     satuanHasil: 'meter',
-    keterangan: 'Kebutuhan roll dikali 2,7 meter',
-    berlakuUntuk: 'Kasa Roll',
-  },
-  {
-    kode: '8320311RE',
-    namaProduk: 'Needle Punch Inspection',
-    tipeRumus: 'MULTIPLIER',
-    faktor: 2.7,
-    satuanHasil: 'meter',
-    keterangan: 'Kebutuhan roll dikali 2,7 meter',
+    keterangan: 'Kebutuhan roll dikali 2,7 meter (khusus pengerjaan RB, tidak untuk RE inspection)',
     berlakuUntuk: 'Kasa Roll',
   },
   {
@@ -85,6 +76,9 @@ export function sanitizeFormulas(data: unknown): MasterRumusMapping[] {
     const rawKode = raw.kode ?? raw.code ?? '';
     const kode = String(rawKode).trim().toUpperCase();
     if (!kode) continue;
+
+    // 8320311RE adalah proses inspection terpisah dan tidak boleh memiliki rumus konversi
+    if (kode === '8320311RE') continue;
 
     const rawTipe = String(raw.tipeRumus ?? raw.type ?? 'MULTIPLIER').toUpperCase();
     const tipeRumus = (['MULTIPLIER', 'SLITTING', 'DIVIDER', 'CUSTOM'].includes(rawTipe)

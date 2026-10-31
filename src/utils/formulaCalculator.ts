@@ -117,6 +117,11 @@ export function findMatchingFormula(
   const cleanKode = (kode || '').trim().toUpperCase();
   const cleanNama = (namaProduk || '').trim().toUpperCase();
 
+  // 8320311RE adalah proses inspection mandiri dan terpisah dari 8320311RB (tidak diimplementasikan rumus)
+  if (cleanKode === '8320311RE' || cleanNama.includes('8320311RE')) {
+    return undefined;
+  }
+
   // 1. Cek kecocokan kode spesifik (Exact Code Match)
   if (cleanKode) {
     const exact = formulas.find((f) => {
@@ -136,6 +141,10 @@ export function findMatchingFormula(
   const patternMatch = formulas.find((f) => {
     if (!f) return false;
     if (f.berlakuUntuk === 'Kasa Roll' && !isRoll) return false;
+
+    // Rumus kode spesifik (seperti 8320311RB) tidak boleh dicocokkan secara parsial ke kode/nama lain
+    const targetKode = (f.kode || '').trim().toUpperCase();
+    if (targetKode.startsWith('8320311')) return false;
 
     // Cek apakah f.kode cocok sebagai keyword di namaProduk
     const keyword = (f.kode || f.namaProduk || '').trim().toUpperCase();

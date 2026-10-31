@@ -5,13 +5,13 @@ export const INITIAL_MASTER_CODES: MasterCodeMapping[] = [
     kode: '8320311RB',
     bahanBaku: 'Needle Punch',
     jenis: 'Kasa Roll',
-    catatan: 'Material khusus pengerjaan roll / inspection',
+    catatan: 'Material roll pengerjaan RB (kebutuhan roll dikali 2,7 meter)',
   },
   {
     kode: '8320311RE',
     bahanBaku: 'Needle Punch',
     jenis: 'Kasa Roll',
-    catatan: 'Material roll inspection needle punch',
+    catatan: 'Material roll inspection (plan terpisah dari RB, tanpa rumus konversi)',
   },
   {
     kode: '8320314RB',
