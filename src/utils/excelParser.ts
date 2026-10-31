@@ -69,10 +69,11 @@ export interface ExtractedMaterialItem {
 /**
  * Ekstraksi spesifikasi lebar dinamis (contoh: L8, L19, L28, L26, L18, L20, LEBAR 8, LEBAR 19, dll.)
  */
-function extractWidthSpecification(text: string): string | null {
+export function extractWidthSpecification(text: string): string | null {
   if (!text) return null;
-  // Cocokkan pola seperti L8, L19, L28, L26, L18, LEBAR 8, LEBAR 19, L 28, dll.
-  const match = text.match(/\b(?:LEBAR|L)\s*(\d+(?:[.,]\d+)?)\s*(?:CM)?\b/i);
+  // Cocokkan pola seperti L8, L19, L28, L26, L18, L38WH, L38 WH, L20SGC, L25WH, LEBAR 8, LEBAR 19, L 28, dll.
+  // Mendukung angka lebar yang menempel langsung dengan suffix kode (seperti L38WH tanpa spasi)
+  const match = text.match(/\b(?:LEBAR|L)\s*(\d+(?:[.,]\d+)?)(?:\s*CM)?(?:\s*[A-Z]+)?(?=[^0-9A-Z]|$)/i);
   if (match && match[1]) {
     return match[1].replace(',', '.');
   }
@@ -443,6 +444,7 @@ export function extractMaterialItemsFromProcessRow(
       const items: ExtractedMaterialItem[] = [];
       const combinedText = `${ket} ${namaProd} ${kode}`.trim();
       const winchSpec = extractWinchSpecification(combinedText);
+      const widthSpec = extractWidthSpecification(combinedText);
 
       for (const matched of matchedMasters) {
         // Mendukung multi bahan dalam satu teks (misal: "Carded Laps 87,5 + Bembliese" atau ";", "&", " dan ")
@@ -454,6 +456,17 @@ export function extractMaterialItemsFromProcessRow(
         // ganti bahan 'SHQ' standar dengan spek khusus WINCH tersebut agar tidak tercampur!
         if (winchSpec) {
           bahanList = bahanList.map((b) => (b.trim().toUpperCase() === 'SHQ' ? winchSpec : b));
+        }
+
+        // Jika baris pengerjaan memiliki spek lebar khusus (misal: "24/20 L38WH" atau "24/20 L38 WH"),
+        // ganti bahan umum 24/20 atau 24/17 dengan spek lebar tersebut
+        if (widthSpec) {
+          bahanList = bahanList.map((b) => {
+            const bUpper = b.trim().toUpperCase();
+            if (bUpper === '24/20' || bUpper === '24X20') return `24/20 Lebar ${widthSpec}cm`;
+            if (bUpper === '24/17' || bUpper === '24X17') return `24/17 Lebar ${widthSpec}cm`;
+            return b;
+          });
         }
 
         const subItems = createSubItemsForBahan(bahanList, matched.jenis === 'Kasa Roll', kode);
