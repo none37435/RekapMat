@@ -311,22 +311,33 @@ export function extractMaterialItemsFromProcessRow(
     qtyProduksi = 0;
     qtySambung = 0;
   } else {
-    // Jika baris pekerjaan memiliki rujukan sisa slit week lalu (misal: "SLIT W4") dan ada proses folding/cutting:
-    // Bagian folding/cutting tersebut menggunakan sisa roll yang sudah ada (bukan bahan baru dari gudang).
-    // Jika baris ini juga memiliki proses Slitting, maka bahan mentah yang ditarik HANYA porsi slitting-nya saja!
-    if (priorRef.isMatch && (rawFolding > 0 || rawCutting > 0)) {
+    // Secara hierarki alur stasiun:
+    // Jika baris pengerjaan memiliki proses Slitting (rawSlitting > 0):
+    // Maka penarikan bahan mentah baru HANYA untuk porsi Slitting tersebut!
+    // Porsi Folding atau Cutting pada baris yang sama adalah pengerjaan lanjutan yang melipat/memotong
+    // pita hasil slitting tersebut (bukan bahan mentah baru dari gudang).
+    if (rawSlitting > 0) {
       qtyInspection = rawInspection;
       qtySambung = rawSambung;
-      qtyProduksi = rawSlitting; // Murni porsi slitting yang membutuhkan bahan baku baru!
+      qtyProduksi = rawSlitting; // Murni porsi slitting yang menarik bahan mentah baru
     } else {
-      const effectiveTotal = Math.max(
-        total,
-        rawSlitting + rawFolding + rawCutting + rawSambung + rawInspection
-      );
-      qtyInspection = Math.min(effectiveTotal, rawInspection);
-      const remAfterInsp = Math.max(0, effectiveTotal - qtyInspection);
-      qtySambung = Math.min(remAfterInsp, rawSambung);
-      qtyProduksi = Math.max(0, remAfterInsp - qtySambung);
+      // Jika TIDAK ADA proses Slitting pada baris ini (misal baris pengerjaan murni Folding/Cutting):
+      // 1. Jika ada rujukan sisa slit / week lalu (misal "SLIT W4", "SISA SLIT W1"):
+      // Maka pengerjaan ini menggunakan roll transit yang sudah ada (0 bahan baru).
+      if (priorRef.isMatch) {
+        qtyInspection = rawInspection;
+        qtySambung = rawSambung;
+        qtyProduksi = 0;
+      } else {
+        const effectiveTotal = Math.max(
+          total,
+          rawFolding + rawCutting + rawSambung + rawInspection
+        );
+        qtyInspection = Math.min(effectiveTotal, rawInspection);
+        const remAfterInsp = Math.max(0, effectiveTotal - qtyInspection);
+        qtySambung = Math.min(remAfterInsp, rawSambung);
+        qtyProduksi = Math.max(0, remAfterInsp - qtySambung);
+      }
     }
   }
 
@@ -497,9 +508,11 @@ export function extractMaterialItemsFromProcessRow(
     }
   }
 
-  // PRIORITAS 2: Cek keterangan gabungan dengan pemisah titik koma, contoh: "24/20S (1); SLIT W4 (1)" atau "24/20 L26 SGC (1); 24/20S (1)"
-  if (ket.includes(';')) {
-    const parts = ket.split(';').map((p) => p.trim()).filter(Boolean);
+  // PRIORITAS 2: Cek keterangan gabungan dengan pemisah titik koma, tambah (+), atau koma (non-desimal)
+  // Contoh: "24/20S (1); SLIT W4 (1)" atau "24/20S (1) + SLIT W4 (1)"
+  const hasMultiSource = ket.includes(';') || ket.includes('+') || /[,;+]/.test(ket);
+  if (hasMultiSource) {
+    const parts = ket.split(/[;+]|,(?![0-9])/).map((p) => p.trim()).filter(Boolean);
     const subItems: ExtractedMaterialItem[] = [];
 
     // Cek apakah ada bagian dari keterangan yang merujuk pada sisa slit/cut week sebelumnya (misal: "SLIT W4 (1)", "SISA SLIT W1")
@@ -798,18 +811,34 @@ export function extractFoldingCuttingItems(
       const currentDayIdx = getDayIndex(r.hari || r.sheetName || 'senin');
       const currentDayName = r.hari || 'Senin';
 
-      // 1. Cek Jalur A: Apakah ada di data Slitting file minggu lalu?
-      const matchedPriorList = cleanKode ? priorSlittingMap.get(cleanKode) : undefined;
-      const hasPriorWeekSlit = Boolean(matchedPriorList && matchedPriorList.length > 0);
-
       // 2. Cek Jalur B: Apakah teks keterangan mengandung "SISA SLIT W1 / DARI KODE"?
       const textRef = parsePriorWeekReference(r.keterangan || '', r.namaProduk || '');
 
-      // 3. Cek Jalur C: Riwayat Slitting & Folding di minggu ini (Hari <= currentDayIdx)
+      // Target kode yang dilacak mencakup kode baris dan kode sumber dari keterangan (misal: SISA SLIT S0771)
+      const targetCodes = [cleanKode];
+      if (textRef.sourceCode) {
+        const cleanSource = textRef.sourceCode.toUpperCase().replace(/\s+/g, '');
+        if (cleanSource && !targetCodes.includes(cleanSource)) {
+          targetCodes.push(cleanSource);
+        }
+      }
+
+      // 1. Cek Jalur A: Apakah ada di data Slitting file minggu lalu (untuk kode baris atau kode sumber keterangan)?
+      let matchedPriorList: DailyProcessRow[] | undefined;
+      for (const tCode of targetCodes) {
+        const found = priorSlittingMap.get(tCode);
+        if (found && found.length > 0) {
+          matchedPriorList = found;
+          break;
+        }
+      }
+      const hasPriorWeekSlit = Boolean(matchedPriorList && matchedPriorList.length > 0);
+
+      // 3. Cek Jalur C: Riwayat Slitting & Folding di minggu ini (Prinsip kronologis: Hari Slitting <= Hari Folding/Cutting)
       const priorOrSameDaySlits = rows.filter((other) => {
-        if (!cleanKode) return false;
+        if (targetCodes.length === 0) return false;
         const otherClean = (other.kode || '').toUpperCase().replace(/\s+/g, '');
-        if (otherClean !== cleanKode) return false;
+        if (!targetCodes.includes(otherClean)) return false;
         const otherDayIdx = getDayIndex(other.hari || other.sheetName || 'senin');
         return otherDayIdx <= currentDayIdx && Number(other.slitting || 0) > 0;
       });
