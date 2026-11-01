@@ -69,6 +69,17 @@ export interface ExtractedMaterialItem {
 /**
  * Ekstraksi spesifikasi lebar dinamis (contoh: L8, L19, L28, L26, L18, L20, LEBAR 8, LEBAR 19, dll.)
  */
+/**
+ * Mendeteksi apakah baris pengerjaan merupakan penarikan kain kasa lebar langsung dari Warehouse (WH).
+ * Contoh: "24/20 L38WH", "24/20 L8 WH", "24/17 L25 WH", "24/17WH", "DARI WH", "GUDANG WH".
+ */
+export function isKasaLebarWH(keterangan: string, namaProduk: string): boolean {
+  const text = `${keterangan || ''} ${namaProduk || ''}`.toUpperCase();
+  if (/\b(?:L\d+\s*WH|LEBAR\s*\d+\s*WH|\d+\/\d+\s*WH|\bWH\b)/i.test(text)) return true;
+  if (text.includes('DARI WH') || text.includes('KASA LEBAR') || text.includes('GUDANG WH')) return true;
+  return false;
+}
+
 export function extractWidthSpecification(text: string): string | null {
   if (!text) return null;
   // Cocokkan pola seperti L8, L19, L28, L26, L18, L38WH, L38 WH, L20SGC, L25WH, LEBAR 8, LEBAR 19, L 28, dll.
@@ -311,33 +322,48 @@ export function extractMaterialItemsFromProcessRow(
     qtyProduksi = 0;
     qtySambung = 0;
   } else {
-    // Secara hierarki alur stasiun:
-    // Jika baris pengerjaan memiliki proses Slitting (rawSlitting > 0):
-    // Maka penarikan bahan mentah baru HANYA untuk porsi Slitting tersebut!
-    // Porsi Folding atau Cutting pada baris yang sama adalah pengerjaan lanjutan yang melipat/memotong
-    // pita hasil slitting tersebut (bukan bahan mentah baru dari gudang).
+    // Secara hierarki alur stasiun produksi pabrik kasa:
+    const isDRC = (namaProd || '').toUpperCase().includes('DRC');
+
+    // 1. Jika ada proses Slitting (rawSlitting > 0):
+    // Penarikan bahan mentah baru HANYA untuk porsi Slitting! Seluruh porsi Folding & Cutting pada baris ini diabaikan.
     if (rawSlitting > 0) {
       qtyInspection = rawInspection;
       qtySambung = rawSambung;
-      qtyProduksi = rawSlitting; // Murni porsi slitting yang menarik bahan mentah baru
-    } else {
-      // Jika TIDAK ADA proses Slitting pada baris ini (misal baris pengerjaan murni Folding/Cutting):
-      // 1. Jika ada rujukan sisa slit / week lalu (misal "SLIT W4", "SISA SLIT W1"):
-      // Maka pengerjaan ini menggunakan roll transit yang sudah ada (0 bahan baru).
-      if (priorRef.isMatch) {
-        qtyInspection = rawInspection;
-        qtySambung = rawSambung;
-        qtyProduksi = 0;
-      } else {
-        const effectiveTotal = Math.max(
-          total,
-          rawFolding + rawCutting + rawSambung + rawInspection
-        );
-        qtyInspection = Math.min(effectiveTotal, rawInspection);
-        const remAfterInsp = Math.max(0, effectiveTotal - qtyInspection);
-        qtySambung = Math.min(remAfterInsp, rawSambung);
-        qtyProduksi = Math.max(0, remAfterInsp - qtySambung);
-      }
+      qtyProduksi = rawSlitting;
+    }
+    // 2. Selalu abaikan proses cutting/potong DRC karena DRC adalah kasa roll (bahan ditarik di slitting/rolling)
+    else if (isDRC) {
+      qtyInspection = rawInspection;
+      qtySambung = rawSambung;
+      qtyProduksi = 0;
+    }
+    // 3. Jika tanpa Slitting, tetapi ada rujukan sisa slit / week lalu: bahan sudah di palet transit (0 bahan baru)
+    else if (priorRef.isMatch) {
+      qtyInspection = rawInspection;
+      qtySambung = rawSambung;
+      qtyProduksi = 0;
+    }
+    // 4. Jika tanpa Slitting, tetapi ada Folding:
+    // HANYA menarik bahan jika merupakan kasa lebar langsung dari Warehouse (WH)
+    else if (rawFolding > 0) {
+      const isWH = isKasaLebarWH(ket, namaProd);
+      qtyInspection = rawInspection;
+      qtySambung = rawSambung;
+      qtyProduksi = isWH ? rawFolding : 0;
+    }
+    // 5. Jika tanpa Slitting & tanpa Folding, tetapi ada Cutting:
+    // HANYA menarik bahan jika merupakan kasa lebar langsung dari Warehouse (WH)
+    else if (rawCutting > 0) {
+      const isWH = isKasaLebarWH(ket, namaProd);
+      qtyInspection = rawInspection;
+      qtySambung = rawSambung;
+      qtyProduksi = isWH ? rawCutting : 0;
+    }
+    else {
+      qtyInspection = rawInspection;
+      qtySambung = rawSambung;
+      qtyProduksi = 0;
     }
   }
 
@@ -593,6 +619,7 @@ export function autoConvertProcessToRekap(
     const extractedList = extractMaterialItemsFromProcessRow(proc, mappings, formulas);
 
     for (const item of extractedList) {
+      if (item.qty <= 0) continue;
       // Pisahkan baris inspection dan sambung wrapper agar kuantitasnya tidak tercampur dengan kuantitas meter roll produksi
       const inspKey = item.isInspection ? '_insp' : '';
       const sambungKey = item.isSambung ? '_sambung' : '';
@@ -879,32 +906,45 @@ export function extractFoldingCuttingItems(
         precedenceReason = `Keterangan mendeteksi "${textRef.refText}". Dikerjakan pada week sebelumnya (bahan sudah ditarik di stasiun hulu).`;
       } else {
         // Evaluasi kronologis pengerjaan minggu berjalan
-        if (fVal > 0) {
-          if (priorOrSameDaySlits.length > 0) {
-            const firstSlit = priorOrSameDaySlits[0];
-            isIncluded = false;
-            precedenceType = 'ignored_by_slitting';
-            precedenceReason = `Diabaikan: Kode ini sudah memiliki proses Slitting di hari ${firstSlit.hari || 'sebelumnya'} (Bahan ditarik di stasiun Slitting).`;
-          } else {
+        const isDRC = (r.namaProduk || '').toUpperCase().includes('DRC');
+        const isWH = isKasaLebarWH(r.keterangan || '', r.namaProduk || '');
+
+        if (isDRC) {
+          // Selalu abaikan proses cutting/potong DRC karena DRC adalah kasa roll
+          isIncluded = false;
+          precedenceType = 'ignored_by_slitting';
+          precedenceReason = 'Diabaikan: Proses cutting/potong DRC selalu diabaikan (kasa roll, bahan ditarik di stasiun rolling/slitting).';
+        } else if (priorOrSameDaySlits.length > 0) {
+          const firstSlit = priorOrSameDaySlits[0];
+          isIncluded = false;
+          precedenceType = 'ignored_by_slitting';
+          precedenceReason = `Diabaikan: Kode ini sudah melalui proses Slitting di hari ${firstSlit.hari || 'sebelumnya'} (Bahan ditarik di stasiun Slitting).`;
+        } else if (fVal > 0) {
+          // Jika ada Folding tanpa Slitting sebelumnya:
+          if (isWH) {
             isIncluded = true;
             precedenceType = 'included_folding';
-            precedenceReason = `Disertakan: Belum ada proses Slitting untuk kode ini hingga hari ${currentDayName}. Bahan wajib ditarik untuk Folding.`;
-          }
-        } else if (cVal > 0) {
-          if (priorOrSameDaySlits.length > 0) {
-            const firstSlit = priorOrSameDaySlits[0];
+            precedenceReason = `Disertakan: Folding kasa lebar dari Warehouse (WH) tanpa proses Slitting.`;
+          } else {
             isIncluded = false;
             precedenceType = 'ignored_by_slitting';
-            precedenceReason = `Diabaikan: Kode ini sudah melalui proses Slitting di hari ${firstSlit.hari || 'sebelumnya'}.`;
-          } else if (priorOrSameDayFolds.length > 0) {
+            precedenceReason = `Diabaikan: Kasa standar dikerjakan dari hasil slitting (roll transit/week lalu, bukan bahan baru dari WH).`;
+          }
+        } else if (cVal > 0) {
+          // Jika ada Cutting tanpa Slitting sebelumnya:
+          if (priorOrSameDayFolds.length > 0) {
             const firstFold = priorOrSameDayFolds[0];
             isIncluded = false;
             precedenceType = 'ignored_by_folding';
             precedenceReason = `Diabaikan: Kode ini sudah melalui proses Folding di hari ${firstFold.hari || 'sebelumnya'}.`;
-          } else {
+          } else if (isWH) {
             isIncluded = true;
             precedenceType = 'included_cutting';
-            precedenceReason = `Disertakan: Pengerjaan Cutting murni tanpa Slitting/Folding sebelumnya.`;
+            precedenceReason = `Disertakan: Cutting kasa lebar langsung dari Warehouse (WH) tanpa Slitting/Folding.`;
+          } else {
+            isIncluded = false;
+            precedenceType = 'ignored_by_slitting';
+            precedenceReason = `Diabaikan: Kasa standar dikerjakan dari hasil slitting (roll transit/week lalu, bukan bahan baru dari WH).`;
           }
         }
       }
